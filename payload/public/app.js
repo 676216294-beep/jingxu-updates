@@ -29,7 +29,7 @@ function syncParameters(){
  $('modelInfo').textContent=m?`${m.description||m.name||m.id} · 参考图最多 ${c?.references?.images?.max_count??m.max_images??0} 张 · 提示词最多 ${c?.max_prompt_chars||m.max_prompt_chars||50000} 字。模型条件限制以平台校验为准。`:'连接后自动获取可用模型、能力与账户价格。';
 }
 function render(full=false){
- renderDownloadProxy(state);renderBuiltinProxy(state);
+ renderDownloadProxy(state);renderBuiltinProxy(state);const providerInfo=state.providers?.find(x=>x.base===state.base);$('apiDocsLink').href=providerInfo?.docs||'https://huimiaovip.com/docs/api';$('apiDocsLink').textContent=(providerInfo?.name||'官方')+'接口文档 ↗';
  const pr=p();if(document.activeElement!==$('downloadFolder'))$('downloadFolder').value=pr.downloadFolder||'';$('projects').innerHTML=state.projects.map(x=>`<button data-project="${esc(x.id)}" class="${x.id===pr.id?'selected':''}">▤ &nbsp;${esc(x.name)}</button>`).join('');
  $('connection').textContent=state.connected?'● 已连接 · 余额 '+(state.balance?.available??'—')+' 积分':'○ 尚未连接 API';
  const counts=[pr.tasks.length,pr.tasks.filter(t=>['uploading','submitting','queued','in_progress'].includes(t.status)).length,pr.tasks.filter(t=>t.status==='completed').length,pr.tasks.filter(t=>['failed','error','uncertain'].includes(t.status)).length];
@@ -47,6 +47,7 @@ function render(full=false){
  $('start').textContent=state.running?'队列运行中':'▶ 批量生成';$('start').disabled=state.running;
 }
 async function initializeDefaults(){
+ if(state.preferredModel)p().defaults.model=state.preferredModel;
  if(!state.models.some(m=>m.id===p().defaults.model))p().defaults.model=state.models[0]?.id||'';
  syncParameters();p().defaults={model:$('model').value,ratio:$('ratio').value,resolution:$('resolution').value,duration:Number($('duration').value)};
  await persist({defaults:p().defaults});
@@ -57,7 +58,8 @@ function renderTasks(){const pr=p();lastTaskSignature=JSON.stringify(pr.tasks);c
 }
 
 function persist(fields){const url=endpoint();saveChain=saveChain.catch(()=>{}).then(()=>request(url,'PATCH',fields));return saveChain;}
-function settings(){ $('base').value=state.base;$('key').value='';$('connectStatus').textContent='';$('settingsDialog').showModal();}
+function settings(){ $('provider').value=state.providers?.find(x=>x.base===state.base)?.id||'custom';$('providerHint').textContent=state.protocol==='yingman'?'默认使用 Seedance 2.5 Flash；请在萤漫设置 → API 密钥复制完整密钥。':'请选择接口站点并填写该站点的 API Key。';$('base').value=state.base;$('key').value='';$('connectStatus').textContent='';$('settingsDialog').showModal();}
+$('provider').onchange=()=>{const item=state.providers?.find(x=>x.id===$('provider').value);if(item){$('base').value=item.base;$('key').placeholder=item.placeholder;}$('key').value='';$('providerHint').textContent=$('provider').value==='yingman'?'默认使用 Seedance 2.5 Flash，连接后从实际模型列表选择。':'填写所选站点的完整 API Key。';};
 $('settings').onclick=settings;$('openSettings').onclick=settings;$('closeSettings').onclick=()=>$('settingsDialog').close();
 $('connectForm').onsubmit=e=>{e.preventDefault();guard(async()=>{const b=$('connectForm').querySelector('[type=submit]');b.disabled=true;$('connectStatus').textContent='正在读取模型和余额…';try{state=await request('/api/connect','POST',{base:$('base').value,key:$('key').value});await initializeDefaults();$('key').value='';$('settingsDialog').close();render(true);toast('已连接，请检查默认模型和参数；已有分镜可点击“应用到未提交分镜”');}catch(e){$('connectStatus').textContent=e.message;}finally{b.disabled=false;}});};
 $('projects').onclick=e=>{const id=e.target.closest('[data-project]')?.dataset.project;if(id)guard(async()=>{await saveChain;current=id;localStorage.setItem('jx-project',id);activeTask=null;render(true);});};

@@ -1,3 +1,4 @@
+import {providers,protocolFor,taskProtocol,videoRoute,preferredModel,normalizeModels,yingmanPayload,yingmanForm} from './providers.mjs';
 import {familyOf} from './public/history.mjs';
 import {OnlineUpdate} from './online-update.mjs';
 import http from 'node:http';
@@ -21,6 +22,7 @@ const resolvedProxy=config=>config.mode==='builtin'?builtinProxy.config():config
 const downloadJobs={},downloadLocks=new Map(),previewStreams=new Set();
 const mediaBusy=()=>previewStreams.size||Object.values(downloadJobs).some(j=>j.status==='downloading');
 let apiKey=process.env.HUIMIAO_API_KEY||'', base=process.env.HUIMIAO_BASE_URL||'https://huimiaovip.com', models=[], balance=null;
+let protocol=protocolFor(base);try{const saved=JSON.parse(await readFile(path.join(dir,'api-settings.json'),'utf8'));if(!process.env.HUIMIAO_BASE_URL){base=saved.base;protocol=saved.protocol||protocolFor(base);}}catch{}
 let writing=Promise.resolve(), running=false, concurrency=2, ticking=false;const active=new Set(), assetLocks=new Map();
 function save(){const value=JSON.stringify(db,null,2);writing=writing.then(async()=>{await writeFile(path.join(dir,'projects.tmp'),value);await rename(path.join(dir,'projects.tmp'),path.join(dir,'projects.json'));});return writing;}
 // A restart never creates new tasks automatically. Known remote tasks can still be queried.
@@ -30,14 +32,14 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 function safeError(e){return String(e.message||e).replaceAll(apiKey||'__no_key__','[密钥已隐藏]');}
 async function api(endpoint,{method='GET',body,key}={}){
  if(!apiKey)throw Error('请先在接口设置中填写 API Key');
- const headers={Authorization:`Bearer ${apiKey}`};if(body)headers['Content-Type']='application/json; charset=utf-8';if(key)headers['Idempotency-Key']=key;
- const r=await fetch(base+endpoint,{method,headers,body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000),redirect:'error'});
+ const headers={Authorization:`Bearer ${apiKey}`};const multipart=body instanceof FormData;if(body&&!multipart)headers['Content-Type']='application/json; charset=utf-8';if(key)headers['Idempotency-Key']=key;
+ const r=await fetch(base+endpoint,{method,headers,body:body?(multipart?body:JSON.stringify(body)):undefined,signal:AbortSignal.timeout(multipart?180000:60000),redirect:'error'});
  const data=await r.json().catch(()=>({}));
  if(!r.ok){const e=Error(`${data.error?.message||'接口请求失败'} (${data.error?.code||r.status})${r.headers.get('x-request-id')?' · 请求号 '+r.headers.get('x-request-id'):''}`);e.status=r.status;e.retryAfter=r.headers.get('retry-after');throw e;}return data;
 }
 async function retryRead(endpoint,options){for(let n=0;;n++){try{return await api(endpoint,options);}catch(e){if(n>=3||!(e.status===429||e.status>=500))throw e; const val=Number(e.retryAfter);await pause(Math.min(60000,Number.isFinite(val)&&val>0?val*1000:2000*2**n));}}}
-function finalPrompt(p,t){const names=t.assets.map(id=>p.assets.find(a=>a.id===id)).filter(Boolean).map((a,i)=>`${a.name.replace(/\.[^.]+$/,'')}是参考图${i+1}`).join('，');return [p.prefix,names,t.prompt,p.suffix].filter(Boolean).join('\n\n');}
-function payload(p,t){return {model:t.model,prompt:t.preparedPrompt||finalPrompt(p,t),ratio:t.ratio,duration:Number(t.duration),resolution:t.resolution,asset_keys:t.assets.map(id=>p.assets.find(a=>a.id===id)?.objectKey).filter(Boolean)};}
+function finalPrompt(p,t){const names=t.assets.map(id=>p.assets.find(a=>a.id===id)).filter(Boolean).map((a,i)=>`${a.name.replace(/\.[^.]+$/,'')}是${protocol==='yingman'?'@图片':'参考图'}${i+1}`).join('，');return [p.prefix,names,t.prompt,p.suffix].filter(Boolean).join('\n\n');}
+function payload(p,t){if(protocol==='yingman')return yingmanPayload(t,t.assets.map(id=>p.assets.find(a=>a.id===id)).filter(Boolean),t.preparedPrompt||finalPrompt(p,t));return {model:t.model,prompt:t.preparedPrompt||finalPrompt(p,t),ratio:t.ratio,duration:Number(t.duration),resolution:t.resolution,asset_keys:t.assets.map(id=>p.assets.find(a=>a.id===id)?.objectKey).filter(Boolean)};}
 async function upload(a){
  if(a.objectKey&&a.uploadBase===base)return a.objectKey;
  if(assetLocks.has(a.id))return assetLocks.get(a.id);
@@ -54,11 +56,11 @@ async function upload(a){
 }
 async function submit(p,t){
  active.add(t.id);try{
-  if(!t.request){t.status='uploading';await save();for(const id of t.assets){const a=p.assets.find(a=>a.id===id);if(!a)throw Error('引用的素材已丢失');await upload(a);}t.request=payload(p,t);t.idempotencyKey ||=randomUUID();}
+  if(!t.request){t.apiProtocol=protocol;t.status='uploading';await save();if(protocol!=='yingman')for(const id of t.assets){const a=p.assets.find(a=>a.id===id);if(!a)throw Error('引用的素材已丢失');await upload(a);}t.request=payload(p,t);t.idempotencyKey ||=randomUUID();}
   // Persist exact request and idempotency key before making the chargeable call.
   t.status='submitting';t.apiBase=base;await save();
   let result;
-  try{result=await api('/v1/videos/generations',{method:'POST',body:t.request,key:t.idempotencyKey});}
+  try{const proto=taskProtocol(t,base);const requestBody=proto==='yingman'?await yingmanForm(t.request,file=>readFile(path.join(dir,'assets',file))):t.request;result=await api(videoRoute(proto),{method:'POST',body:requestBody,key:t.idempotencyKey});}
   catch(e){t.status=e.status&&e.status<500&&e.status!==429?'error':'uncertain';throw e;}
   if(!result.id){t.status='uncertain';throw Error('未返回任务编号，请复用原请求查询');}
   t.remoteId=String(result.id);t.remote=result;t.status=result.status||'queued';t.error='';t.nextPoll=Date.now()+5000;
@@ -66,7 +68,7 @@ async function submit(p,t){
 }
 async function poll(t){active.add(t.id);try{
  if(t.apiBase&&t.apiBase!==base)throw Error('该任务属于其他站点，请切换到原 API 地址');
- t.remote=await api('/v1/videos/generations/'+encodeURIComponent(t.remoteId));t.status=t.remote.status;t.error=t.status==='failed'?(t.remote.error?.message||t.remote.failure_reason||'平台生成失败'):'';
+ t.remote=await api(videoRoute(taskProtocol(t,base),t.remoteId));t.status=t.remote.status;t.error=t.status==='failed'?(t.remote.error?.message||t.remote.failure_reason||'平台生成失败'):'';
  t.nextPoll=Date.now()+Math.min(20000,(t.pollCount=(t.pollCount||0)+1)<12?5000:15000);
  }catch(e){t.error=safeError(e);t.nextPoll=Date.now()+30000;}finally{active.delete(t.id);await save();}}
 async function tick(){if(ticking||!apiKey)return;ticking=true;try{
@@ -77,7 +79,7 @@ async function tick(){if(ticking||!apiKey)return;ticking=true;try{
  if(!all.some(({t})=>['pending','uploading','submitting'].includes(t.status)))running=false;
  }finally{ticking=false;}}
 const timer=setInterval(tick,1000);
-function view(){return {...db,projects:db.projects.map(({deletedAssets,...p})=>({...p,deletedAssetCount:deletedAssets?.length||0})),connected:!!apiKey,base,models,balance,running,concurrency,downloadProxy:publicProxyConfig(downloadProxy),builtinProxy:builtinProxy.view(),downloadJobs};}
+function view(){return {...db,projects:db.projects.map(({deletedAssets,...p})=>({...p,deletedAssetCount:deletedAssets?.length||0})),connected:!!apiKey,base,models,balance,running,concurrency,providers,protocol,preferredModel:preferredModel(models,protocol),downloadProxy:publicProxyConfig(downloadProxy),builtinProxy:builtinProxy.view(),downloadJobs};}
 const onlineUpdate=new OnlineUpdate({root,config:()=>{try{return resolvedProxy(downloadProxy);}catch{return {mode:'direct'};}},runnerEnv:()=>({...process.env,HUIMIAO_API_KEY:apiKey,HUIMIAO_BASE_URL:base,STUDIO_DATA:dir}),restart:async()=>{await save();await builtinProxy.stop();clearInterval(timer);setTimeout(()=>{server.closeAllConnections();server.close();process.exit(42);},700);}});
 const json=(res,value,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
 async function body(req,limit=1024*1024){let parts=[],n=0;for await(const b of req){n+=b.length;if(n>limit)throw Error('文件或请求超过大小限制');parts.push(b);}return Buffer.concat(parts);}
@@ -92,7 +94,7 @@ async function performDownload(t){
  const config=resolvedProxy({...downloadProxy});downloadJobs[t.id]={status:'downloading',bytes:0,total:0,speed:0,mode:downloadProxy.mode};
  const onProgress=progress=>Object.assign(downloadJobs[t.id],progress);
  const fallback=base+'/v1/videos/'+encodeURIComponent(t.remoteId)+'/content';
- let direct;try{const candidate=new URL(t.remote?.download_url);if(candidate.protocol==='https:')direct=candidate.href;}catch{}
+ let direct;try{const candidate=new URL(t.remote?.download_url||(taskProtocol(t,base)==='yingman'?t.remote?.url:undefined));if(candidate.protocol==='https:')direct=candidate.href;}catch{}
  const options={config,allowHttp:process.env.STUDIO_TEST==='1',onProgress};
  try{
   if(direct){try{await streamDownload(direct,file+'.part',{...options,headers:new URL(direct).origin===base?{Authorization:`Bearer ${apiKey}`}:{}});}catch(error){
@@ -139,12 +141,12 @@ export const server=http.createServer(async(req,res)=>{try{
   if(active.size||running)throw Error('请先暂停队列并等待当前请求完成后切换接口');
   const b=await readJson(req);const u=new URL(b.base||base);if(u.protocol!=='https:' && !(process.env.STUDIO_TEST==='1'&&u.hostname==='127.0.0.1'))throw Error('接口地址必须使用 HTTPS');
   if(u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('只填写站点根地址，例如 https://huimiaovip.com');
-  const nextKey=String(b.key||apiKey).trim();if(!nextKey)throw Error('请填写 API Key');
-  const old={apiKey,base};apiKey=nextKey;base=u.origin;try{const m=await api('/v1/models');models=m.data||[];balance=await api('/v1/balance');}catch(e){apiKey=old.apiKey;base=old.base;models=[];balance=null;throw e;}
+  const nextKey=String(b.key||(u.origin===base?apiKey:'')).trim();if(!nextKey)throw Error('请填写 API Key');
+  const old={apiKey,base,protocol,models,balance};apiKey=nextKey;base=u.origin;protocol=process.env.STUDIO_TEST==='1'&&b.protocol?b.protocol:protocolFor(base);try{const m=await api('/v1/models');models=normalizeModels(m.data||[],protocol);balance=await api('/v1/balance');if(protocol==='yingman'&&!preferredModel(models,protocol))throw Error('当前密钥返回的模型列表中未找到 Seedance 2.5 Flash，请确认该模型已对账号开放');}catch(e){({apiKey,base,protocol,models,balance}=old);throw e;}await writeFile(path.join(dir,'api-settings.json'),JSON.stringify({base,protocol}));
   if(old.apiKey!==apiKey||old.base!==base){for(const pr of db.projects)for(const a of pr.assets){delete a.objectKey;delete a.uploadBase;}await save();}
   return json(res,view());
  }
- if(req.method==='POST'&&url.pathname==='/api/projects'){const p=initial().projects[0];p.name='新建合集';db.projects.push(p);await save();return json(res,p);}
+ if(req.method==='POST'&&url.pathname==='/api/projects'){const p=initial().projects[0];p.defaults.model=preferredModel(models,protocol)||p.defaults.model;p.name='新建合集';db.projects.push(p);await save();return json(res,p);}
  if(req.method==='POST'&&url.pathname==='/api/pause'){running=false;await save();return json(res,view());}
  const m=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(.*))?$/);
  if(m){const p=project(m[1]),action=m[2]||'';
@@ -207,8 +209,8 @@ export const server=http.createServer(async(req,res)=>{try{
    }
    if(req.method==='DELETE'&&!op){if(!editable(t)||t.request)throw Error('此任务已提交或正在处理中，不能删除');p.tasks=p.tasks.filter(x=>x!==t);await save();return json(res,p);}
    if(req.method==='POST'&&op==='duplicate'){const source=t.revision||t;const copy={...p.defaults,prompt:source.prompt,label:t.label+' 副本',assets:[...source.assets],model:source.model,duration:source.duration,ratio:source.ratio,resolution:source.resolution,id:randomUUID(),status:'draft'};p.tasks.push(copy);await save();return json(res,p);}
-   if(req.method==='POST'&&op==='recover'){if(!['uncertain','error'].includes(t.status)||!t.request||active.has(t.id))throw Error('此任务无需恢复或正在重试');if(!apiKey)throw Error('请先连接 API');if(t.apiBase&&t.apiBase!==base)throw Error('请切换到任务原 API 站点恢复');if(!t.idempotencyKey)throw Error('缺少原请求标识，无法安全恢复，请先到平台确认结果');void submit(p,t);return json(res,{taskId:t.id,recovered:true});}
-   if(req.method==='POST'&&op==='cancel'){if(t.status==='pending'){t.status='draft';}else if(t.status==='queued'){t.remote=await api('/v1/videos/generations/'+encodeURIComponent(t.remoteId),{method:'DELETE'});t.status=t.remote.status||'cancelled';}else throw Error('只可撤回本地排队或取消平台排队任务');await save();return json(res,t);}
+   if(req.method==='POST'&&op==='recover'){if(!['uncertain','error'].includes(t.status)||!t.request||active.has(t.id))throw Error('此任务无需恢复或正在重试');if(!apiKey)throw Error('请先连接 API');if(t.apiBase&&t.apiBase!==base)throw Error('请切换到任务原 API 站点恢复');if(taskProtocol(t,base)==='yingman'&&t.status==='uncertain'){if(t.remoteId){void poll(t);return json(res,{taskId:t.id,recovered:true});}throw Error('萤漫未明确保证视频重复提交的幂等性，请先到萤漫任务页确认结果，确认未生成后再复制分镜提交');}if(!t.idempotencyKey)throw Error('缺少原请求标识，无法安全恢复，请先到平台确认结果');void submit(p,t);return json(res,{taskId:t.id,recovered:true});}
+   if(req.method==='POST'&&op==='cancel'){if(t.status==='pending'){t.status='draft';}else if(t.status==='queued'){if(taskProtocol(t,base)==='yingman')throw Error('萤漫文档未提供取消接口，请到萤漫任务页操作');t.remote=await api('/v1/videos/generations/'+encodeURIComponent(t.remoteId),{method:'DELETE'});t.status=t.remote.status||'cancelled';}else throw Error('只可撤回本地排队或取消平台排队任务');await save();return json(res,t);}
    if(req.method==='POST'&&op==='download'){
     // Check the user-selected folder before retrieving any remote video.
     const folder=p.downloadFolder?await checkFolder(p.downloadFolder):null;

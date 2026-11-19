@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $packageRoot = $PSScriptRoot
 $releaseRoot = Split-Path -Parent $packageRoot
-$packageItems = @('public','tests','vendor','core.mjs','server.mjs','download-proxy.mjs','subscriptions.mjs','builtin-proxy.mjs','core-runner.mjs','asset-library.mjs','video-stream.mjs','distribution-subscription.json','folders.mjs','choose-folder.ps1','launcher.mjs','package.json','package-release.ps1','update.mjs','online-update.mjs','online-install.mjs','update-bootstrap.ps1','release-baseline.json','更新软件.cmd','备份本机记录.cmd','恢复本机记录.cmd','启动工作台.cmd','start.command','start.sh','使用说明.md','官方API参考文档.md','THIRD-PARTY.md','.gitignore')
+$packageItems = @('public','tests','vendor','core.mjs','providers.mjs','server.mjs','download-proxy.mjs','subscriptions.mjs','builtin-proxy.mjs','core-runner.mjs','asset-library.mjs','video-stream.mjs','distribution-subscription.json','folders.mjs','choose-folder.ps1','launcher.mjs','package.json','package-release.ps1','update.mjs','online-update.mjs','online-install.mjs','update-bootstrap.ps1','release-baseline.json','更新软件.cmd','备份本机记录.cmd','恢复本机记录.cmd','启动工作台.cmd','start.command','start.sh','使用说明.md','官方API参考文档.md','THIRD-PARTY.md','.gitignore')
 function Write-StudioArchive($outputName, $items) {
  $outputPath = Join-Path $releaseRoot $outputName
  $stream = [IO.File]::Open($outputPath, [IO.FileMode]::Create)
