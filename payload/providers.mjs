@@ -13,13 +13,20 @@ export function preferredModel(models,protocol){
 export function normalizeModels(input,protocol){
  if(protocol!=='yingman')return input;
  return input.filter(m=>!m.capability||typeof m.capability!=='string'||m.capability==='video').map(m=>{
-  if(m.capability_config)return {...m,name:m.name||m.display_name||m.displayName||m.id};
-  const v=m.capabilities?.video||m.capabilityConfig?.video||{},flash=!!preferredModel([m],'yingman');
+  const raw=[m.capability_config,m.capabilities,m.capabilityConfig].find(c=>c&&typeof c==='object'&&!Array.isArray(c)&&Object.keys(c).length)||{},v=raw.video||raw,flash=!!preferredModel([m],'yingman');
+  // Verified on the site's Flash channel: 4–30 seconds, 10 images. Account
+  // capabilities take precedence, including explicit zero limits. Other models
+  // without metadata must not inherit a guessed duration or a zero-image limit.
+  const number=value=>value!==undefined&&value!==null&&value!==''&&Number.isFinite(Number(value))?Number(value):undefined;
   const ratios=v.ratios||m.supported_ratios||['21:9','16:9','4:3','1:1','3:4','9:16'];
-  const resolutions=(v.resolutions||m.supported_resolutions||['720p']).map(x=>String(x).toLowerCase());
-  const duration=v.duration||{},min=duration.min||m.min_duration||4,max=duration.max||m.max_duration||(flash?12:12),values=duration.values;
+  const outputs=v.outputs?.map(o=>({...o,code:String(o.code).toLowerCase()}));
+  const resolutions=(outputs?.map(o=>o.code)||v.resolutions||m.supported_resolutions||['720p']).map(x=>String(x).toLowerCase());
+  const duration=v.duration||{},min=number(duration.min)??number(m.min_duration)??(flash?4:undefined),max=number(duration.max)??number(m.max_duration)??(flash?30:undefined);
+  const values=Array.isArray(duration.values)?[...new Set(duration.values.map(number).filter(n=>n>0))]:null;
+  const refs=v.references||{},maxImages=number(refs.images?.max_count)??number(refs.maxImages)??number(m.max_images)??(flash?10:undefined);
   return {...m,name:m.name||m.display_name||m.displayName||m.id,supported_ratios:ratios,supported_resolutions:resolutions,min_duration:min,max_duration:max,
-   capability_config:{duration:values?{mode:'values',values}:{mode:'range',min,max,step:duration.step||1},outputs:resolutions.map(code=>({code,ratios})),references:{images:{max_count:v.references?.maxImages??m.max_images??(flash?5:0)}},max_prompt_chars:v.references?.promptMaxChars||m.max_prompt_chars||32000}};
+   capability_config:{...v,duration:values?.length?{...duration,mode:'values',values}:min!==undefined||max!==undefined?{...duration,mode:'range',min,max,step:number(duration.step)??1}:undefined,
+    outputs:outputs||resolutions.map(code=>({code,ratios})),references:{...refs,images:{...refs.images,max_count:maxImages}},max_prompt_chars:v.max_prompt_chars??refs.promptMaxChars??m.max_prompt_chars??32000}};
  });
 }
 export function pixelSize(resolution,ratio){

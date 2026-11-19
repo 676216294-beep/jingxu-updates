@@ -26,7 +26,9 @@ function syncParameters(){
  let durations=c?.duration?.values||[];if(c?.duration?.mode==='range')durations=Array.from({length:Math.min(600,Math.floor((c.duration.max-c.duration.min)/(c.duration.step||1))+1)},(_,i)=>c.duration.min+i*(c.duration.step||1));
  if(!durations.length)durations=Array.from({length:Math.min(120,(m?.max_duration||30)-(m?.min_duration||4)+1)},(_,i)=>(m?.min_duration||4)+i);
  options($('duration'),durations.map(d=>({value:String(d),label:d+' 秒'})),p().defaults.duration);
- $('modelInfo').textContent=m?`${m.description||m.name||m.id} · 参考图最多 ${c?.references?.images?.max_count??m.max_images??0} 张 · 提示词最多 ${c?.max_prompt_chars||m.max_prompt_chars||50000} 字。模型条件限制以平台校验为准。`:'连接后自动获取可用模型、能力与账户价格。';
+ const d=c?.duration,maxImages=c?.references?.images?.max_count??m?.max_images;
+ const time=d?.values?.length?d.values.join('、')+' 秒':(d?.min??m?.min_duration)!==undefined&&(d?.max??m?.max_duration)!==undefined?`${d?.min??m.min_duration}–${d?.max??m.max_duration} 秒${d?.step?'，步长 '+d.step+' 秒':''}`:'时长限制待平台确认';
+ $('modelInfo').textContent=m?`${m.description||m.name||m.id} · ${time} · ${maxImages!==undefined?'参考图最多 '+maxImages+' 张':'参考图上限待平台确认'} · 提示词最多 ${c?.max_prompt_chars||m.max_prompt_chars||50000} 字。模型条件限制以平台校验为准。`:'连接后自动获取可用模型、能力与账户价格。';
 }
 function render(full=false){
  renderDownloadProxy(state);renderBuiltinProxy(state);const providerInfo=state.providers?.find(x=>x.base===state.base);$('apiDocsLink').href=providerInfo?.docs||'https://huimiaovip.com/docs/api';$('apiDocsLink').textContent=(providerInfo?.name||'官方')+'接口文档 ↗';
