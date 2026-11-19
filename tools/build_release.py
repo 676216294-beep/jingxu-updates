@@ -26,6 +26,8 @@ def build(root):
         if not file.resolve().is_relative_to(payload.resolve()) or file.is_symlink():
             raise ValueError('Payload outside root')
         content = file.read_bytes()
+        if name.lower().endswith('.ps1') and any(b > 127 for b in content) and not content.startswith(b'\xef\xbb\xbf'):
+            raise ValueError('Non-ASCII PowerShell script requires UTF-8 BOM: ' + name)
         if hashlib.sha256(content).hexdigest() != entry['sha256']:
             raise ValueError('File checksum mismatch: ' + name)
         if re.search(rb'hm_live_[a-zA-Z0-9_-]{12,}', content):

@@ -1,4 +1,4 @@
-param([switch]$Full)
+﻿param([switch]$Full)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $packageRoot = $PSScriptRoot

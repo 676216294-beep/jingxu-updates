@@ -1,4 +1,7 @@
 {
+  "baseVersion": "1.2.0",
+  "format": "jingxu-update-v1",
+  "version": "1.4.3",
   "requires": [
     {
       "sha256": "faebbf70669988b5be13130907adf7b788145960448eab08e92e66189e72f448",
@@ -957,9 +960,6 @@
       "path": "runtime/sing-box/source-v1.14.4.zip"
     }
   ],
-  "format": "jingxu-update-v1",
-  "version": "1.4.2",
-  "baseVersion": "1.2.0",
   "files": [
     {
       "sha256": "a616af7c6a7dc9e936001245a1256d71ee415edbe424683fe608bf969b06e7fb",
@@ -984,6 +984,10 @@
     {
       "sha256": "90c11fe7c03562a96954db6ad4516dea39a9183492e639edaa4310f9a6aa9748",
       "path": "public/update-ui.js"
+    },
+    {
+      "sha256": "cd529340cf2ba7d7ff68d0726bcf7f6c5f6da8de26ec03d7f21233b72d06ff78",
+      "path": "tests/bootstrap-encoding.test.mjs"
     },
     {
       "sha256": "fd4c604ef750cd3bdb5e0df37f059d0c49e4692e0daa793d7629d97b71e35d10",
@@ -1014,11 +1018,11 @@
       "path": "launcher.mjs"
     },
     {
-      "sha256": "10d375324387fec165264586b3a9bd67e8c1f923152af0217e3bd4f6fc6451a3",
+      "sha256": "b0d46f2ea183162d0fce5fb8d693f6229bbd37bbd6c041e2cb67684c2f3f8b94",
       "path": "package.json"
     },
     {
-      "sha256": "86e6f94514972b2930d50d5aebd3c31511f4611a15e75ec3341d0f056aedc7c2",
+      "sha256": "87da504872bde173218fed9667b3d08f615e078a1b2a2f0cf1260b19145ead04",
       "path": "package-release.ps1"
     },
     {
@@ -1034,7 +1038,7 @@
       "path": "online-install.mjs"
     },
     {
-      "sha256": "ae7e3e58b5bb079131f09a59a1152db9640149f2176fd76546c0898b1fc6c15d",
+      "sha256": "53d5c634bb199b9fe1955a8e5acfef92f19ba477c768df66bbd8788d8aa6edfd",
       "path": "update-bootstrap.ps1"
     },
     {
@@ -1054,7 +1058,7 @@
       "path": "恢复本机记录.cmd"
     },
     {
-      "sha256": "48054825cda5ce2100c3ea9d6eee0dc1d7204b8d1a3c33fbd7210d470399587f",
+      "sha256": "8cfa4ccee581018143b2fc3fc7c8eeee279e4dbc149019d1fcc98300093933f9",
       "path": "使用说明.md"
     },
     {
