@@ -1,3 +1,4 @@
+import {familyOf} from './public/history.mjs';
 import {OnlineUpdate} from './online-update.mjs';
 import http from 'node:http';
 import {readFile,writeFile,mkdir,rename,stat} from 'node:fs/promises';
@@ -175,14 +176,14 @@ export const server=http.createServer(async(req,res)=>{try{
   const tm=action.match(/^tasks\/([^/]+)(?:\/(.*))?$/);
   if(tm){const t=p.tasks.find(t=>t.id===tm[1]);if(!t)throw Error('任务不存在');const op=tm[2]||'';
    if(req.method==='PATCH'&&!op){
-    if(t.status!=='completed'&&(!editable(t)||t.request))throw Error('此任务正在处理或已提交，当前不可编辑');
+    if(active.has(t.id)||!['draft','completed','error','failed','cancelled'].includes(t.status))throw Error('此任务正在处理或结果尚未确认，当前不可编辑');
     const b=await readJson(req),target={...(t.revision||t)};
     for(const k of ['prompt','assets','model','duration','ratio','resolution'])if(b[k]!==undefined)target[k]=b[k];
     if(typeof target.prompt!=='string'||!target.prompt.trim())throw Error('提示词不能为空');
     if(!Array.isArray(target.assets)||target.assets.some(id=>!p.assets.some(a=>a.id===id)))throw Error('引用的素材不存在');
     if(b.autoDuration||('prompt' in b&&!('duration' in b)))Object.assign(target,inferDuration(target.prompt,target.duration||p.defaults.duration));else if('duration' in b)target.durationSource='手动设置';
     const fields=['prompt','assets','model','duration','ratio','resolution','durationSource','detectedDuration'];
-    if(t.status==='completed'){t.revision=Object.fromEntries(fields.map(k=>[k,target[k]]));t.revisionVersion=(t.revisionVersion||0)+1;}
+    if(t.request||t.remoteId||t.status==='completed'){t.revision=Object.fromEntries(fields.map(k=>[k,target[k]]));t.revisionVersion=(t.revisionVersion||0)+1;}
     else for(const k of fields)t[k]=target[k];
     await save();return json(res,t);
    }
@@ -191,7 +192,8 @@ export const server=http.createServer(async(req,res)=>{try{
     if(b.confirmed!==true||typeof b.confirmationId!=='string'||!/^[-a-zA-Z0-9_]{8,80}$/.test(b.confirmationId))throw Error('请在弹窗中确认重新生成');
     const previous=t.regenerations?.find(r=>r.confirmationId===b.confirmationId);
     if(previous)return json(res,{taskId:previous.taskId,reused:true});
-    if(t.status!=='completed')throw Error('只有已完成的任务可以重新生成');
+    if(active.has(t.id)||!['completed','error','failed','cancelled'].includes(t.status))throw Error('请先恢复确认原请求结果，再重新生成');
+    if(familyOf(p.tasks,t).some(x=>x.id!==t.id&&['pending','uploading','submitting','uncertain','queued','in_progress'].includes(x.status)))throw Error('此分镜已有任务正在处理或等待确认，请勿重复生成');
     if(t.regenerations?.some(r=>{const task=p.tasks.find(x=>x.id===r.taskId);return task&&['pending','uploading','submitting','uncertain','queued','in_progress'].includes(task.status);}))throw Error('此分镜已有重新生成任务正在处理，请等待完成，避免重复提交');
     if(Number(b.revisionVersion)!==(t.revisionVersion||0))throw Error('分镜内容已变化，请重新检查后确认');
     if(!apiKey||!models.length)throw Error('请先连接 API');
@@ -205,7 +207,7 @@ export const server=http.createServer(async(req,res)=>{try{
    }
    if(req.method==='DELETE'&&!op){if(!editable(t)||t.request)throw Error('此任务已提交或正在处理中，不能删除');p.tasks=p.tasks.filter(x=>x!==t);await save();return json(res,p);}
    if(req.method==='POST'&&op==='duplicate'){const source=t.revision||t;const copy={...p.defaults,prompt:source.prompt,label:t.label+' 副本',assets:[...source.assets],model:source.model,duration:source.duration,ratio:source.ratio,resolution:source.resolution,id:randomUUID(),status:'draft'};p.tasks.push(copy);await save();return json(res,p);}
-   if(req.method==='POST'&&op==='recover'){if(!['uncertain','error'].includes(t.status)||!t.request||active.has(t.id))throw Error('此任务无需恢复');void submit(p,t);return json(res,view());}
+   if(req.method==='POST'&&op==='recover'){if(!['uncertain','error'].includes(t.status)||!t.request||active.has(t.id))throw Error('此任务无需恢复或正在重试');if(!apiKey)throw Error('请先连接 API');if(t.apiBase&&t.apiBase!==base)throw Error('请切换到任务原 API 站点恢复');if(!t.idempotencyKey)throw Error('缺少原请求标识，无法安全恢复，请先到平台确认结果');void submit(p,t);return json(res,{taskId:t.id,recovered:true});}
    if(req.method==='POST'&&op==='cancel'){if(t.status==='pending'){t.status='draft';}else if(t.status==='queued'){t.remote=await api('/v1/videos/generations/'+encodeURIComponent(t.remoteId),{method:'DELETE'});t.status=t.remote.status||'cancelled';}else throw Error('只可撤回本地排队或取消平台排队任务');await save();return json(res,t);}
    if(req.method==='POST'&&op==='download'){
     // Check the user-selected folder before retrieving any remote video.
