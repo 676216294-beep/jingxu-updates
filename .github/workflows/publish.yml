@@ -1,0 +1,39 @@
+name: Publish updater-compatible release
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'updates/release.json'
+      - 'payload/**'
+      - 'tools/build_release.py'
+      - '.github/workflows/publish.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate files and build update
+        id: build
+        run: python3 tools/build_release.py
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.build.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "This version already exists; no published assets were changed."
+            exit 0
+          fi
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "镜序 $VERSION · 自动发布更新" --notes-file dist/NOTES.md
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" "dist/jingxu-update-$VERSION.zip" dist/SHA256SUMS.txt
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest

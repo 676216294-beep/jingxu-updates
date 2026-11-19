@@ -1,0 +1,13 @@
+{
+  "name": "huimiao-local-studio",
+  "version": "1.4.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --use-env-proxy server.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=24.5.0"
+  }
+}
