@@ -1,3 +1,4 @@
+import {modelLabel} from './model-catalog.mjs';
 import {setupUpdates} from './update-ui.js';
 import {familyOf,latestCompleted,groupedTasks,openHistory} from './history.mjs';
 import {previewVideo} from './media-ui.js';
@@ -16,7 +17,7 @@ async function request(url,method='GET',data){const r=await fetch(url,{method,he
 async function guard(fn){try{await fn();}catch(e){toast(e.message);}}
 async function refresh(full=false){const next=await request('/api/state');state=next;if(!state.projects.some(x=>x.id===current))current=state.projects[0].id;render(full);}
 function options(el,values,chosen){el.innerHTML=values.map(x=>typeof x==='string'?`<option value="${esc(x)}">${esc(x)}</option>`:`<option value="${esc(x.value)}">${esc(x.label)}</option>`).join('');if(values.some(x=>(typeof x==='string'?x:x.value)==String(chosen)))el.value=chosen;}
-function modelOptions(chosen){const arr=state.models.map(m=>({value:m.id,label:m.name||m.id}));if(chosen&&!arr.some(x=>x.value===chosen))arr.unshift({value:chosen,label:chosen+'（待连接确认）'});if(!arr.length)arr.push({value:'',label:'请先连接 API 读取模型'});return arr;}
+function modelOptions(chosen){const arr=state.models.map(m=>({value:m.id,label:modelLabel(m)}));if(chosen&&!arr.some(x=>x.value===chosen))arr.unshift({value:chosen,label:chosen+'（待连接确认）'});if(!chosen&&state.protocol==='yingman')arr.unshift({value:'',label:'请选择模型（核对价格、渠道及 ID）'});if(!arr.length)arr.push({value:'',label:'请先连接 API 读取模型'});return arr;}
 function syncParameters(){
  options($('model'),modelOptions(p().defaults.model),p().defaults.model);
  const m=state.models.find(m=>m.id===$('model').value), c=m?.capability_config;
@@ -28,7 +29,7 @@ function syncParameters(){
  options($('duration'),durations.map(d=>({value:String(d),label:d+' 秒'})),p().defaults.duration);
  const d=c?.duration,maxImages=c?.references?.images?.max_count??m?.max_images;
  const time=d?.values?.length?d.values.join('、')+' 秒':(d?.min??m?.min_duration)!==undefined&&(d?.max??m?.max_duration)!==undefined?`${d?.min??m.min_duration}–${d?.max??m.max_duration} 秒${d?.step?'，步长 '+d.step+' 秒':''}`:'时长限制待平台确认';
- $('modelInfo').textContent=m?`${m.description||m.name||m.id} · ${time} · ${maxImages!==undefined?'参考图最多 '+maxImages+' 张':'参考图上限待平台确认'} · 提示词最多 ${c?.max_prompt_chars||m.max_prompt_chars||50000} 字。模型条件限制以平台校验为准。`:'连接后自动获取可用模型、能力与账户价格。';
+ $('modelInfo').textContent=m?`${modelLabel(m)} · ${time} · ${maxImages!==undefined?'参考图最多 '+maxImages+' 张':'参考图上限待平台确认'} · 提示词最多 ${c?.max_prompt_chars||m.max_prompt_chars||50000} 字。模型条件限制以平台校验为准。`:'连接后自动获取可用模型、能力与账户价格。';
 }
 function render(full=false){
  renderDownloadProxy(state);renderBuiltinProxy(state);const providerInfo=state.providers?.find(x=>x.base===state.base);$('apiDocsLink').href=providerInfo?.docs||'https://huimiaovip.com/docs/api';$('apiDocsLink').textContent=(providerInfo?.name||'官方')+'接口文档 ↗';
@@ -49,8 +50,7 @@ function render(full=false){
  $('start').textContent=state.running?'队列运行中':'▶ 批量生成';$('start').disabled=state.running;
 }
 async function initializeDefaults(){
- if(state.preferredModel)p().defaults.model=state.preferredModel;
- if(!state.models.some(m=>m.id===p().defaults.model))p().defaults.model=state.models[0]?.id||'';
+ if(!state.models.some(m=>m.id===p().defaults.model))p().defaults.model=state.preferredModel||(state.protocol==='yingman'?'':state.models[0]?.id||'');
  syncParameters();p().defaults={model:$('model').value,ratio:$('ratio').value,resolution:$('resolution').value,duration:Number($('duration').value)};
  await persist({defaults:p().defaults});
 }
@@ -63,7 +63,7 @@ function persist(fields){const url=endpoint();saveChain=saveChain.catch(()=>{}).
 function settings(){ $('provider').value=state.providers?.find(x=>x.base===state.base)?.id||'custom';$('providerHint').textContent=state.protocol==='yingman'?'默认使用 Seedance 2.5 Flash；请在萤漫设置 → API 密钥复制完整密钥。':'请选择接口站点并填写该站点的 API Key。';$('base').value=state.base;$('key').value='';$('connectStatus').textContent='';$('settingsDialog').showModal();}
 $('provider').onchange=()=>{const item=state.providers?.find(x=>x.id===$('provider').value);if(item){$('base').value=item.base;$('key').placeholder=item.placeholder;}$('key').value='';$('providerHint').textContent=$('provider').value==='yingman'?'默认使用 Seedance 2.5 Flash，连接后从实际模型列表选择。':'填写所选站点的完整 API Key。';};
 $('settings').onclick=settings;$('openSettings').onclick=settings;$('closeSettings').onclick=()=>$('settingsDialog').close();
-$('connectForm').onsubmit=e=>{e.preventDefault();guard(async()=>{const b=$('connectForm').querySelector('[type=submit]');b.disabled=true;$('connectStatus').textContent='正在读取模型和余额…';try{state=await request('/api/connect','POST',{base:$('base').value,key:$('key').value});await initializeDefaults();$('key').value='';$('settingsDialog').close();render(true);toast('已连接，请检查默认模型和参数；已有分镜可点击“应用到未提交分镜”');}catch(e){$('connectStatus').textContent=e.message;}finally{b.disabled=false;}});};
+$('connectForm').onsubmit=e=>{e.preventDefault();guard(async()=>{const b=$('connectForm').querySelector('[type=submit]');b.disabled=true;$('connectStatus').textContent='正在读取模型、价格和余额…';try{state=await request('/api/connect','POST',{base:$('base').value,key:$('key').value});await initializeDefaults();$('key').value='';$('settingsDialog').close();render(true);toast('已连接，请检查默认模型和参数；已有分镜可点击“应用到未提交分镜”');}catch(e){$('connectStatus').textContent=e.message;}finally{b.disabled=false;}});};
 $('projects').onclick=e=>{const id=e.target.closest('[data-project]')?.dataset.project;if(id)guard(async()=>{await saveChain;current=id;localStorage.setItem('jx-project',id);activeTask=null;render(true);});};
 $('newProject').onclick=()=>guard(async()=>{await saveChain;const pr=await request('/api/projects','POST',{});current=pr.id;await refresh(true);});
 for(const [id,key]of [['projectName','name'],['raw','raw'],['prefix','prefix'],['suffix','suffix']])$(id).onchange=()=>guard(async()=>{p()[key]=$(id).value;await persist({[key]:$(id).value});});

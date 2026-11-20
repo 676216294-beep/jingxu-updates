@@ -957,10 +957,13 @@
       "sha256": "d16d518cae9b5c33c6e4061989f121051c3835d001c45dff2507803cf92e232d"
     }
   ],
+  "version": "1.5.2",
+  "baseVersion": "1.2.0",
+  "format": "jingxu-update-v1",
   "files": [
     {
       "path": "public/app.js",
-      "sha256": "5e84f4accaeaba2938593cc352c0b68d81e940807d22c1c5e8e2105a1c9c3fef"
+      "sha256": "28499b1d6eddedcc05ea809d29e1ed6dab7132abb1cffbe26573ba8a6eabd4c2"
     },
     {
       "path": "public/history.mjs",
@@ -969,6 +972,10 @@
     {
       "path": "public/index.html",
       "sha256": "4142365f2f25ccd2043b667a99ca9c4daf87e344f03524784dbb2c8c47483c44"
+    },
+    {
+      "path": "public/model-catalog.mjs",
+      "sha256": "2b416a69de431239eba8667be6ce242296fd98483aff5a93b07e2385540efa2c"
     },
     {
       "path": "public/style.css",
@@ -995,6 +1002,10 @@
       "sha256": "fd4c604ef750cd3bdb5e0df37f059d0c49e4692e0daa793d7629d97b71e35d10"
     },
     {
+      "path": "tests/model-catalog.test.mjs",
+      "sha256": "e6d8efc22ce59efe617d32271675df81319abd0d004324e6e16c43cfe68b48c4"
+    },
+    {
       "path": "tests/online-update.test.mjs",
       "sha256": "97f57cac635a96a5bd3610ffbbccbada7c0903947e32d45d5af12e1f8b0a03be"
     },
@@ -1004,7 +1015,7 @@
     },
     {
       "path": "tests/yingman.test.mjs",
-      "sha256": "92ee97351c26f46e394f7298db76284dcd83df1af79e17b2407ac820e63e7d5d"
+      "sha256": "ef603b23458c6122f59a801e106fdd5b1f05695ba8a7c630fc6d6b00d86a30f8"
     },
     {
       "path": "core.mjs",
@@ -1012,11 +1023,11 @@
     },
     {
       "path": "providers.mjs",
-      "sha256": "baba759fee24fbff9cbd3c57af8f0b6d8c8e7443b7e08bc79172bd161c047112"
+      "sha256": "a4309175ed9591c642b0b00cac7f8104dd8538fc9296b6a2f1f5b3ecc4a93b70"
     },
     {
       "path": "server.mjs",
-      "sha256": "17febf938f038a9c6ff4c90282ebbef081320b5266fe74b842fdec23b8f4ff44"
+      "sha256": "fc0399032a357f41f745a2a5bf588a12ca102d1d3d9a72133d2a5379c7aa110a"
     },
     {
       "path": "download-proxy.mjs",
@@ -1036,7 +1047,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "427c13adcda9f3e506779423f25a0a4fe3d94804f0816d38be312ed0679928e9"
+      "sha256": "2550be0b3d010deead08433fdc7b6e234c0e5cb17d18874ac59691aba3bbfd7c"
     },
     {
       "path": "package-release.ps1",
@@ -1076,14 +1087,11 @@
     },
     {
       "path": "使用说明.md",
-      "sha256": "f432fbe6b924b91f8250ae6ab4b0a8dfec832b0d0d404d1e1ad8da97af20ecda"
+      "sha256": "328c8738bba32e41eafedbb6cd5e2daa46e329ef8802315b0ea9440dfc63e6e4"
     },
     {
       "path": ".gitignore",
       "sha256": "08d72dca0dd8aa0303c17a58bdad344f235d33e33b796a098d51145ee7204404"
     }
-  ],
-  "format": "jingxu-update-v1",
-  "baseVersion": "1.2.0",
-  "version": "1.5.1"
+  ]
 }

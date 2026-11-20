@@ -1,4 +1,4 @@
-import {providers,protocolFor,taskProtocol,videoRoute,preferredModel,normalizeModels,yingmanPayload,yingmanForm} from './providers.mjs';
+import {providers,protocolFor,taskProtocol,videoRoute,preferredModel,enrichModelDetails,normalizeModels,yingmanPayload,yingmanForm} from './providers.mjs';
 import {familyOf} from './public/history.mjs';
 import {OnlineUpdate} from './online-update.mjs';
 import http from 'node:http';
@@ -30,10 +30,10 @@ for(const p of db.projects)for(const t of p.tasks){if(t.status==='uploading')t.s
 await save();
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 function safeError(e){return String(e.message||e).replaceAll(apiKey||'__no_key__','[密钥已隐藏]');}
-async function api(endpoint,{method='GET',body,key}={}){
+async function api(endpoint,{method='GET',body,key,timeout}={}){
  if(!apiKey)throw Error('请先在接口设置中填写 API Key');
  const headers={Authorization:`Bearer ${apiKey}`};const multipart=body instanceof FormData;if(body&&!multipart)headers['Content-Type']='application/json; charset=utf-8';if(key)headers['Idempotency-Key']=key;
- const r=await fetch(base+endpoint,{method,headers,body:body?(multipart?body:JSON.stringify(body)):undefined,signal:AbortSignal.timeout(multipart?180000:60000),redirect:'error'});
+ const r=await fetch(base+endpoint,{method,headers,body:body?(multipart?body:JSON.stringify(body)):undefined,signal:AbortSignal.timeout(timeout||(multipart?180000:60000)),redirect:'error'});
  const data=await r.json().catch(()=>({}));
  if(!r.ok){const e=Error(`${data.error?.message||'接口请求失败'} (${data.error?.code||r.status})${r.headers.get('x-request-id')?' · 请求号 '+r.headers.get('x-request-id'):''}`);e.status=r.status;e.retryAfter=r.headers.get('retry-after');throw e;}return data;
 }
@@ -142,7 +142,7 @@ export const server=http.createServer(async(req,res)=>{try{
   const b=await readJson(req);const u=new URL(b.base||base);if(u.protocol!=='https:' && !(process.env.STUDIO_TEST==='1'&&u.hostname==='127.0.0.1'))throw Error('接口地址必须使用 HTTPS');
   if(u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('只填写站点根地址，例如 https://huimiaovip.com');
   const nextKey=String(b.key||(u.origin===base?apiKey:'')).trim();if(!nextKey)throw Error('请填写 API Key');
-  const old={apiKey,base,protocol,models,balance};apiKey=nextKey;base=u.origin;protocol=process.env.STUDIO_TEST==='1'&&b.protocol?b.protocol:protocolFor(base);try{const m=await api('/v1/models');models=normalizeModels(m.data||[],protocol);balance=await api('/v1/balance');if(protocol==='yingman'&&!preferredModel(models,protocol))throw Error('当前密钥返回的模型列表中未找到 Seedance 2.5 Flash，请确认该模型已对账号开放');}catch(e){({apiKey,base,protocol,models,balance}=old);throw e;}await writeFile(path.join(dir,'api-settings.json'),JSON.stringify({base,protocol}));
+  const old={apiKey,base,protocol,models,balance};apiKey=nextKey;base=u.origin;protocol=process.env.STUDIO_TEST==='1'&&b.protocol?b.protocol:protocolFor(base);try{const m=await api('/v1/models');models=normalizeModels(protocol==='yingman'?await enrichModelDetails(m.data||[],endpoint=>api(endpoint,{timeout:8000})):m.data||[],protocol);balance=await api('/v1/balance');}catch(e){({apiKey,base,protocol,models,balance}=old);throw e;}await writeFile(path.join(dir,'api-settings.json'),JSON.stringify({base,protocol}));
   if(old.apiKey!==apiKey||old.base!==base){for(const pr of db.projects)for(const a of pr.assets){delete a.objectKey;delete a.uploadBase;}await save();}
   return json(res,view());
  }

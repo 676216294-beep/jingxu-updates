@@ -1,3 +1,4 @@
+import {modelPriceText} from './public/model-catalog.mjs';
 export const providers=[
  {id:'huimiao',name:'Huimiao',base:'https://huimiaovip.com',docs:'https://huimiaovip.com/docs/api',placeholder:'hm_live_…'},
  {id:'yingman',name:'萤漫',base:'https://yingman.xlapis.com',docs:'https://yingman.xlapis.com/settings?section=api-docs',placeholder:'sk-mc-…'}
@@ -8,7 +9,14 @@ export const videoRoute=(protocol,id)=>protocol==='yingman'?'/v1/videos'+(id?'/'
 const compact=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
 export function preferredModel(models,protocol){
  if(protocol!=='yingman')return '';
- return models.find(m=>[m.name,m.display_name,m.displayName,m.id].some(value=>{const key=compact(value);return key==='seedance25flash'||key==='agnesvideo25flash'||key.includes('seedance25flash');}))?.id||'';
+ const matches=models.filter(isFlashModel);return matches.length===1?matches[0].id:'';
+}
+export const isFlashModel=m=>[m.name,m.display_name,m.displayName,m.id].some(value=>{const key=compact(value);return key==='seedance25flash'||key==='agnesvideo25flash'||key.includes('seedance25flash');});
+export async function enrichModelDetails(models,request){
+ const result=[...models];let cursor=0;
+ const worker=async()=>{while(cursor<result.length){const i=cursor++,m=result[i];if(m.capability&&typeof m.capability==='string'&&m.capability!=='video'||modelPriceText(m)!=='价格未提供')continue;
+  try{const response=await request('/v1/models/'+encodeURIComponent(m.id)),detail=response.data||response;if(detail.id===m.id)result[i]={...m,...detail};}catch{/* Model details are optional; preserve the usable catalog on failure. */}
+ }};await Promise.all([worker(),worker(),worker(),worker()]);return result;
 }
 export function normalizeModels(input,protocol){
  if(protocol!=='yingman')return input;
