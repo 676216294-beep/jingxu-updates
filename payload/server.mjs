@@ -1,6 +1,6 @@
 import {updateBlockers} from './public/update-policy.mjs';
 import {providers,protocolFor,taskProtocol,videoRoute,preferredModel,enrichModelDetails,normalizeModels,yingmanPayload,yingmanForm} from './providers.mjs';
-import {familyOf} from './public/history.mjs';
+import {familyOf,groupedTasks,latestCompleted} from './public/history.mjs';
 import {OnlineUpdate} from './online-update.mjs';
 import http from 'node:http';
 import {readFile,writeFile,mkdir,rename,stat} from 'node:fs/promises';
@@ -20,12 +20,14 @@ let db;try{db=JSON.parse(await readFile(path.join(dir,'projects.json'),'utf8'));
 let downloadProxy={mode:'builtin',url:''};try{downloadProxy=validateProxyConfig(JSON.parse(await readFile(path.join(dir,'download-settings.json'),'utf8')));}catch{}
 const builtinProxy=await new BuiltinProxy({root,dir}).init();
 const resolvedProxy=config=>config.mode==='builtin'?builtinProxy.config():config;
-const downloadJobs={},downloadLocks=new Map(),previewStreams=new Set();
-const mediaBusy=()=>previewStreams.size||Object.values(downloadJobs).some(j=>j.status==='downloading');
+const downloadJobs={},batchDownloadJobs={},downloadLocks=new Map(),saveDownloadLocks=new Map(),previewStreams=new Set();
+const batchesRunning=()=>Object.values(batchDownloadJobs).filter(j=>j.status==='running').length;
+const mediaBusy=()=>previewStreams.size||batchesRunning()||Object.values(downloadJobs).some(j=>j.status==='downloading');
 let apiKey=process.env.HUIMIAO_API_KEY||'', base=process.env.HUIMIAO_BASE_URL||'https://huimiaovip.com', models=[], balance=null;
 let protocol=protocolFor(base);try{const saved=JSON.parse(await readFile(path.join(dir,'api-settings.json'),'utf8'));if(!process.env.HUIMIAO_BASE_URL){base=saved.base;protocol=saved.protocol||protocolFor(base);}}catch{}
 let writing=Promise.resolve(), running=false, concurrency=2, ticking=false;const active=new Set(), assetLocks=new Map();
 function save(){const value=JSON.stringify(db,null,2);writing=writing.then(async()=>{await writeFile(path.join(dir,'projects.tmp'),value);await rename(path.join(dir,'projects.tmp'),path.join(dir,'projects.json'));});return writing;}
+function requestConcurrency(value){const n=Number(value);return Number.isFinite(n)?Math.max(1,Math.min(50,Math.trunc(n))):2;}
 // A restart never creates new tasks automatically. Known remote tasks can still be queried.
 for(const p of db.projects)for(const t of p.tasks){if(t.status==='uploading')t.status='draft';if(t.status==='submitting')t.status='uncertain';if(t.status==='draft'&&!t.request&&!t.durationSource)Object.assign(t,inferDuration(t.prompt,t.duration));}
 await save();
@@ -108,8 +110,8 @@ async function tick(){if(ticking||!apiKey)return;ticking=true;try{
  if(!all.some(({t})=>['pending','uploading','submitting'].includes(t.status)))running=false;
  }finally{ticking=false;}}
 const timer=setInterval(tick,1000);
-function view(){return {...db,projects:db.projects.map(({deletedAssets,...p})=>({...p,deletedAssetCount:deletedAssets?.length||0})),connected:!!apiKey,base,models,balance,running,concurrency,providers,protocol,preferredModel:preferredModel(models,protocol),downloadProxy:publicProxyConfig(downloadProxy),builtinProxy:builtinProxy.view(),downloadJobs};}
-const blockers=()=>updateBlockers({running,active:active.size,downloads:downloadLocks.size,previews:previewStreams.size,testing:builtinProxy.testRun.running,projects:db.projects});
+function view(){return {...db,projects:db.projects.map(({deletedAssets,...p})=>({...p,deletedAssetCount:deletedAssets?.length||0})),connected:!!apiKey,base,models,balance,running,concurrency,providers,protocol,preferredModel:preferredModel(models,protocol),downloadProxy:publicProxyConfig(downloadProxy),builtinProxy:builtinProxy.view(),downloadJobs,batchDownloadJobs};}
+const blockers=()=>updateBlockers({running,active:active.size,downloads:downloadLocks.size+saveDownloadLocks.size+batchesRunning(),previews:previewStreams.size,testing:builtinProxy.testRun.running,projects:db.projects});
 const onlineUpdate=new OnlineUpdate({root,config:()=>{try{return resolvedProxy(downloadProxy);}catch{return {mode:'direct'};}},runnerEnv:()=>({...process.env,HUIMIAO_API_KEY:apiKey,HUIMIAO_BASE_URL:base,STUDIO_DATA:dir}),restart:async()=>{await save();await builtinProxy.stop();clearInterval(timer);setTimeout(()=>{server.closeAllConnections();server.close();process.exit(42);},700);}});
 const json=(res,value,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
 async function body(req,limit=1024*1024){let parts=[],n=0;for await(const b of req){n+=b.length;if(n>limit)throw Error('文件或请求超过大小限制');parts.push(b);}return Buffer.concat(parts);}
@@ -121,7 +123,7 @@ async function performDownload(t){
  if(t.localVideo){const cached=path.join(dir,'videos',t.localVideo);try{await stat(cached);return cached;}catch{}}
  if(t.apiBase!==base)throw Error('请切换到任务原站点下载');
  const filename=t.id+'.mp4',file=path.join(dir,'videos',filename);
- const config=resolvedProxy({...downloadProxy});downloadJobs[t.id]={status:'downloading',bytes:0,total:0,speed:0,mode:downloadProxy.mode};
+ const config=resolvedProxy({...downloadProxy});downloadJobs[t.id]={label:t.label,status:'downloading',bytes:0,total:0,speed:0,mode:downloadProxy.mode};
  const onProgress=progress=>Object.assign(downloadJobs[t.id],progress);
  const fallback=base+'/v1/videos/'+encodeURIComponent(t.remoteId)+'/content';
  let direct;try{const candidate=new URL(t.remote?.download_url||(taskProtocol(t,base)==='yingman'?t.remote?.url:undefined));if(candidate.protocol==='https:')direct=candidate.href;}catch{}
@@ -136,6 +138,19 @@ async function performDownload(t){
  }catch(error){downloadJobs[t.id].status='error';downloadJobs[t.id].error=safeError(error);throw error;}
 }
 async function download(t){if(downloadLocks.has(t.id))return downloadLocks.get(t.id);const job=performDownload(t);downloadLocks.set(t.id,job);try{return await job;}finally{downloadLocks.delete(t.id);}}
+async function saveDownload(t,folder){
+ const key=t.id+'\0'+(folder||'');if(saveDownloadLocks.has(key))return saveDownloadLocks.get(key);
+ const job=(async()=>{const file=await download(t);if(folder){t.savedPath=await saveVideoToFolder(file,folder,t.label,t.remote?.public_id||t.id);await save();}return t;})();
+ saveDownloadLocks.set(key,job);try{return await job;}finally{saveDownloadLocks.delete(key);}
+}
+async function runBatchDownload(tasks,folder,job){
+ let next=0;
+ const worker=async()=>{while(next<tasks.length){const t=tasks[next++];job.active++;
+  try{await saveDownload(t,folder);job.completed++;}catch(e){job.failed++;job.errors.push({taskId:t.id,label:t.label,error:safeError(e)});}finally{job.active--;}
+ }};
+ await Promise.all(Array.from({length:job.concurrency},worker));
+ job.status=job.failed?'partial':'completed';
+}
 export const server=http.createServer(async(req,res)=>{try{
  const url=new URL(req.url,'http://localhost');
  const host=req.headers.host;if(!host||!['127.0.0.1','localhost','[::1]'].includes(host.replace(/:\d+$/,''))){res.writeHead(403);return res.end();}
@@ -181,6 +196,17 @@ export const server=http.createServer(async(req,res)=>{try{
  if(req.method==='POST'&&url.pathname==='/api/pause'){running=false;await save();return json(res,view());}
  const m=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(.*))?$/);
  if(m){const p=project(m[1]),action=m[2]||'';
+  if(req.method==='POST'&&action==='download-all'){
+   const b=await readJson(req);if(batchDownloadJobs[p.id]?.status==='running')return json(res,batchDownloadJobs[p.id]);
+   const tasks=groupedTasks(p.tasks).map(t=>latestCompleted(p.tasks,t)).filter(Boolean);
+   if(tasks.length&&!p.downloadFolder)throw Error('请先选择成片保存位置');
+   const folder=tasks.length?await checkFolder(p.downloadFolder):'';
+   if(batchDownloadJobs[p.id]?.status==='running')return json(res,batchDownloadJobs[p.id]);
+   const job={id:randomUUID(),projectId:p.id,projectName:p.name,folder,total:tasks.length,concurrency:Math.min(tasks.length,requestConcurrency(b.concurrency??concurrency)),completed:0,failed:0,active:0,errors:[],status:tasks.length?'running':'completed'};
+   batchDownloadJobs[p.id]=job;
+   if(tasks.length)void runBatchDownload(tasks,folder,job).catch(e=>{job.status='error';job.error=safeError(e);});
+   return json(res,job);
+  }
   if(req.method==='POST'&&action==='pull-video'){const b=await readJson(req);return json(res,await pullVideo(p,b.remoteId));}
   if(req.method==='PATCH'&&!action){const b=await readJson(req);for(const k of ['name','raw','defaults','prefix','suffix'])if(b[k]!==undefined)p[k]=b[k];await save();return json(res,p);}
   if(req.method==='POST'&&action==='download-folder'){
@@ -201,7 +227,7 @@ export const server=http.createServer(async(req,res)=>{try{
   if(req.method==='POST'&&action==='restore-asset'){const restored=restoreAsset(p);await save();return json(res,{restoredId:restored.id});}
   if(req.method==='POST'&&action==='match'){for(const t of p.tasks)if(editable(t))t.assets=matchAssets(t.prompt,p.assets);await save();return json(res,p);}
   if(req.method==='POST'&&action==='start'){
-   if(!apiKey||!models.length)throw Error('请先连接 API');const b=await readJson(req),requestedConcurrency=Number(b.concurrency);concurrency=Number.isFinite(requestedConcurrency)?Math.max(1,Math.min(50,Math.trunc(requestedConcurrency))):2;
+   if(!apiKey||!models.length)throw Error('请先连接 API');const b=await readJson(req);concurrency=requestConcurrency(b.concurrency);
    const tasks=p.tasks.filter(t=>(!b.ids||b.ids.includes(t.id))&&['draft','pending'].includes(t.status));if(!tasks.length)throw Error('没有未提交分镜');
    for(const t of tasks){const errors=validate(t,models.find(m=>m.id===t.model),t.assets.map(id=>p.assets.find(a=>a.id===id)).filter(Boolean),finalPrompt(p,t));if(errors.length)throw Error(`${t.label}：${errors.join('；')}`);}
    for(const t of tasks){t.preparedPrompt=finalPrompt(p,t);t.status='pending';}running=true;await save();void tick();return json(res,view());
@@ -255,7 +281,7 @@ export const server=http.createServer(async(req,res)=>{try{
    if(req.method==='POST'&&op==='download'){
     // Check the user-selected folder before retrieving any remote video.
     const folder=p.downloadFolder?await checkFolder(p.downloadFolder):null;
-    const file=await download(t);if(folder){t.savedPath=await saveVideoToFolder(file,folder,t.label,t.remote?.public_id||t.id);await save();}return json(res,t);
+    return json(res,await saveDownload(t,folder));
    }
    if(['GET','HEAD'].includes(req.method)&&['preview-video','video'].includes(op)){
     if(op==='video'){if(!t.localVideo)throw Error('请先下载视频');return await serveLocalVideo(req,res,path.join(dir,'videos',t.localVideo),{attachment:true});}

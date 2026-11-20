@@ -1,5 +1,5 @@
 {
-  "version": "1.6.3",
+  "version": "1.6.4",
   "format": "jingxu-update-v1",
   "requires": [
     {
@@ -962,7 +962,7 @@
   "files": [
     {
       "path": "public/app.js",
-      "sha256": "1bac0341b2a5bd65d78d54485098da396d3a539258bdf2b4b3d8f2c585d65848"
+      "sha256": "0e4de289124a1e7d162bedce1086c845c0b8208545b2b3523811ca43feac3917"
     },
     {
       "path": "public/history.mjs",
@@ -1038,7 +1038,7 @@
     },
     {
       "path": "server.mjs",
-      "sha256": "921cda58d0a7c803e916042d17396ef5ff6a4257d88d33ae5bb101fdc7bc2eb3"
+      "sha256": "a53e20a0afddd0ae2c0edd8f1833ed75a13d83740ae87d0c309e6d4d192e5339"
     },
     {
       "path": "download-proxy.mjs",
@@ -1058,7 +1058,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "603db2151e7cf3d55097366cd10e506c9d95dc4218fa400fe3421a2f86352b60"
+      "sha256": "43754ce116f82654561243348db3df81c8771b047617cc348d131bfc21a02117"
     },
     {
       "path": "package-release.ps1",
@@ -1119,6 +1119,14 @@
     {
       "path": "tests/concurrency.test.mjs",
       "sha256": "f2c850663cb044567fc0524f80cc20140557500712740947ce7b8516fbe8b063"
+    },
+    {
+      "path": "public/download-ui.js",
+      "sha256": "59c0060143b69cf1fa6042bf9736cdc4ae02731a527ce17a31eea6d8f55e9e5d"
+    },
+    {
+      "path": "tests/batch-download.test.mjs",
+      "sha256": "fe3ee86a2fdae6ab641ea649c9ff52b6b2aace6736c7e9b9d8f1c6cb338a6a7f"
     }
   ],
   "baseVersion": "1.2.0"
