@@ -224,7 +224,7 @@ export const server=http.createServer(async(req,res)=>{try{
     if(t.status!=='completed')throw Error('视频尚未生成完成');
     if(t.localVideo){const file=path.join(dir,'videos',t.localVideo);if(await stat(file).catch(()=>null))return await serveLocalVideo(req,res,file);}
     if(t.apiBase!==base)throw Error('请切换到任务原站点预览');
-    let direct;try{const u=new URL(t.remote?.download_url);if(u.protocol==='https:')direct=u.href;}catch{}
+    let direct;try{const u=new URL(t.remote?.download_url||(taskProtocol(t,base)==='yingman'?t.remote?.url:undefined));if(u.protocol==='https:')direct=u.href;}catch{}
     const streamId=randomUUID();previewStreams.add(streamId);
     try{return await relayVideo(req,res,{direct,fallback:base+'/v1/videos/'+encodeURIComponent(t.remoteId)+'/content',authorization:'Bearer '+apiKey,config:resolvedProxy({...downloadProxy}),allowHttp:process.env.STUDIO_TEST==='1'});}finally{previewStreams.delete(streamId);}
    }

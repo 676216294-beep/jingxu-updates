@@ -107,7 +107,7 @@ $('readDurations').onclick=()=>guard(async()=>{await saveChain;const result=awai
 const renderDownloadProxy=setupDownloadProxy({request,refresh,toast});
 const renderBuiltinProxy=setupBuiltinProxy({request,refresh,toast});
 let regeneration=null;
-function playVersion(t){return previewVideo(t,{url:taskUrl(t)+'/preview-video?version='+encodeURIComponent(t.remoteId||t.id),onDownload:()=>downloadVersion(t)});}
+function playVersion(t){return previewVideo(t,{url:taskUrl(t)+'/preview-video?version='+encodeURIComponent(t.remoteId||t.id),mode:state.downloadProxy?.mode,onDownload:()=>downloadVersion(t)});}
 function downloadVersion(t){return guard(async()=>{if(!await ensureDownloadFolder())return;toast('正在下载所选版本…');const result=await request(taskUrl(t)+'/download','POST',{});toast('已保存到：'+result.savedPath);await refresh();});}
 async function confirmRegenerate(t){await saveChain;await refresh();t=p().tasks.find(x=>x.id===t.id)||t;const shown=workingCopy(t);if(t.status==='uncertain'&&t.request){regeneration={url:taskUrl(t)+'/recover',body:{confirmed:true},recover:true};$('confirmDialog').querySelector('h2').textContent='确认重试原请求';$('confirmSubmit').textContent='确认重试';$('confirmContent').textContent=t.label+' 上次请求的结果尚未确认，将使用原请求标识重试并获取结果，避免重复新建任务。原请求确认失败后可以再编辑并重新生成。';$('confirmDialog').showModal();return;}regeneration={url:taskUrl(t)+'/regenerate',body:{confirmed:true,confirmationId:crypto.randomUUID(),revisionVersion:t.revisionVersion||0}};
  $('confirmDialog').querySelector('h2').textContent='确认重新生成';$('confirmSubmit').textContent='确认重新生成';

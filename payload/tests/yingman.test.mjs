@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import https from 'node:https';
 import {once} from 'node:events';
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {normalizeModels,preferredModel,pixelSize,videoRoute,yingmanForm,yingmanPayload} from '../providers.mjs';
 import {validate} from '../core.mjs';
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
@@ -40,19 +42,27 @@ test('萤漫 30 秒 7 图通过校验；真实能力优先，超限显示具体�
  assert.match(validate(task,mixed,images).join(';'),/7 张.*2 张/);
 });
 test('萤漫接入：模型余额、图片 multipart、异步轮询、预览下载及未知请求保护',async()=>{
- const dir=await mkdtemp(path.join(tmpdir(),'jx-yingman-'));let child,missingModel=false,loseResponse=false,calls=0;const submitted=[];
+ const dir=await mkdtemp(path.join(tmpdir(),'jx-yingman-'));let child,missingModel=false,loseResponse=false,calls=0,contentCalls=0;const submitted=[];
+ const certFile=new URL('./fixtures/localhost-cert.pem',import.meta.url);
+ const videoBytes=Buffer.from('yingman-video-bytes');
+ const media=https.createServer({cert:await readFile(certFile),key:await readFile(new URL('./fixtures/localhost-key.pem',import.meta.url))},(req,res)=>{
+  assert.equal(req.headers.authorization,undefined);
+  res.setHeader('Content-Type','video/mp4');
+  if(req.headers.range){assert.equal(req.headers.range,'bytes=0-3');res.writeHead(206,{'Content-Length':4,'Content-Range':`bytes 0-3/${videoBytes.length}`,'Accept-Ranges':'bytes'});return res.end(videoBytes.subarray(0,4));}
+  res.end(videoBytes);
+ });media.listen(0,'127.0.0.1');await once(media,'listening');const mediaUrl='https://127.0.0.1:'+media.address().port+'/video.mp4';
  const upstream=http.createServer(async(req,res)=>{const reply=data=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(data));};
   assert.equal(req.headers.authorization,'Bearer test-yingman-private-key');
   if(req.url==='/v1/models')return reply({data:missingModel?[{id:'non-flash-id',name:'Other video',capability:'video'}]:[{id:'actual-flash-id',name:'Seedance 2.5 Flash',capability:'video'}]});
   if(req.url==='/v1/models/actual-flash-id')return reply({id:'actual-flash-id',channelName:'测试渠道',billingMode:'fixed_request',unitPriceMicrocredits:250000000});
   if(req.url==='/v1/balance')return reply({available:500,frozen:0});
   if(req.url==='/v1/videos'&&req.method==='POST'){calls++;const chunks=[];for await(const b of req)chunks.push(b);const parsed=await new Request('http://local.test',{method:'POST',headers:req.headers,body:Buffer.concat(chunks)}).formData();submitted.push(parsed);if(loseResponse)return req.socket.destroy();return reply({id:'video-first',status:'queued'});}
-  if(req.url==='/v1/videos/video-first')return reply({id:'video-first',status:'completed'});
-  if(req.url==='/v1/videos/video-first/content'){res.setHeader('Content-Type','video/mp4');return res.end('yingman-video-bytes');}
+  if(req.url==='/v1/videos/video-first')return reply({id:'video-first',status:'completed',url:mediaUrl});
+  if(req.url==='/v1/videos/video-first/content'){contentCalls++;res.writeHead(502);return res.end();}
   res.writeHead(404);res.end();
  });upstream.listen(0,'127.0.0.1');await once(upstream,'listening');const base='http://127.0.0.1:'+upstream.address().port;
  try{
-  child=spawn(process.execPath,['server.mjs'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,STUDIO_TEST:'1',STUDIO_DATA:dir,PORT:'0'},stdio:['ignore','pipe','pipe']});let log='';child.stdout.on('data',b=>log+=b);for(let i=0;i<100&&!log.includes('http://');i++)await wait(30);const origin=log.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0];assert.ok(origin,log);
+  child=spawn(process.execPath,['server.mjs'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,STUDIO_TEST:'1',STUDIO_DATA:dir,PORT:'0',NODE_EXTRA_CA_CERTS:fileURLToPath(certFile)},stdio:['ignore','pipe','pipe']});let log='';child.stdout.on('data',b=>log+=b);for(let i=0;i<100&&!log.includes('http://');i++)await wait(30);const origin=log.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0];assert.ok(origin,log);
   const call=async(url,method='GET',body)=>{const r=await fetch(origin+url,{method,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined});const data=await r.json();return {status:r.status,data};};
   const connect=await call('/api/connect','POST',{base,key:'test-yingman-private-key',protocol:'yingman'});assert.equal(connect.status,200,JSON.stringify(connect.data));assert.equal(connect.data.preferredModel,'actual-flash-id');assert.equal(connect.data.protocol,'yingman');assert.ok(!JSON.stringify(connect.data).includes('test-yingman-private-key'));
   assert.equal(connect.data.models[0].unitPriceMicrocredits,250000000);assert.equal(connect.data.models[0].channelName,'测试渠道');
@@ -64,9 +74,9 @@ test('萤漫接入：模型余额、图片 multipart、异步轮询、预览下�
   for(const name of names){const image=await fetch(origin+endpoint+'/assets',{method:'POST',headers:{'Content-Type':'image/png','X-Filename':encodeURIComponent(name+'.png')},body:Buffer.from('image-data')});assert.equal(image.status,200);}
   await call(endpoint,'PATCH',{raw:'{分镜 1}\n'+names.join('、')+'出现在镜头中，总时长30秒',defaults:{model:'actual-flash-id',ratio:'9:16',resolution:'720p',duration:5}});await call(endpoint+'/parse','POST',{mode:'markers'});const start=await call(endpoint+'/start','POST',{});assert.equal(start.status,200,JSON.stringify(start.data));
   let state,task;for(let i=0;i<180;i++){state=(await call('/api/state')).data;task=state.projects[0].tasks[0];if(task.status==='completed')break;await wait(50);}assert.equal(task.status,'completed');assert.equal(task.apiProtocol,'yingman');assert.equal(calls,1);assert.equal(submitted[0].get('model'),'actual-flash-id');assert.match(submitted[0].get('prompt'),/林策是@图片1/);assert.match(submitted[0].get('prompt'),/书本是@图片7/);assert.equal(submitted[0].getAll('input_reference').length,7);for(const image of submitted[0].getAll('input_reference'))assert.equal(await image.text(),'image-data');assert.equal(submitted[0].get('seconds'),'30');assert.equal(submitted[0].get('size'),'720x1280');
-  await call('/api/download-proxy','POST',{mode:'direct'});const preview=await fetch(origin+endpoint+'/tasks/'+task.id+'/preview-video');assert.equal(preview.status,200);assert.equal(await preview.text(),'yingman-video-bytes');assert.equal((await call(endpoint+'/tasks/'+task.id+'/download','POST',{})).status,200);
+  await call('/api/download-proxy','POST',{mode:'direct'});const preview=await fetch(origin+endpoint+'/tasks/'+task.id+'/preview-video',{headers:{Range:'bytes=0-3'}});assert.equal(preview.status,206);assert.equal(preview.headers.get('content-range'),`bytes 0-3/${videoBytes.length}`);assert.equal(await preview.text(),'ying');assert.equal((await call(endpoint+'/tasks/'+task.id+'/download','POST',{})).status,200);assert.equal(contentCalls,0);
   missingModel=true;const noFlash=await call('/api/connect','POST',{base,key:'test-yingman-private-key',protocol:'yingman'});assert.equal(noFlash.status,200);assert.equal(noFlash.data.preferredModel,'');assert.equal(noFlash.data.models[0].id,'non-flash-id');missingModel=false;await call('/api/connect','POST',{base,key:'test-yingman-private-key',protocol:'yingman'});
   loseResponse=true;const retry=await call(endpoint+'/tasks/'+task.id+'/regenerate','POST',{confirmed:true,confirmationId:'yingman-regeneration-0001',revisionVersion:0});assert.equal(retry.status,200);
   let uncertain;for(let i=0;i<100;i++){state=(await call('/api/state')).data;uncertain=state.projects[0].tasks.find(t=>t.id===retry.data.taskId);if(uncertain.status==='uncertain')break;await wait(30);}assert.equal(uncertain.status,'uncertain');const before=calls;const recover=await call(endpoint+'/tasks/'+uncertain.id+'/recover','POST',{});assert.equal(recover.status,400);assert.match(recover.data.error,/幂等/);assert.equal(calls,before);
- }finally{if(child){child.kill();await once(child,'exit');}upstream.close();await rm(dir,{recursive:true,force:true});}
+ }finally{if(child){child.kill();await once(child,'exit');}upstream.close();media.closeAllConnections();media.close();await rm(dir,{recursive:true,force:true});}
 });
