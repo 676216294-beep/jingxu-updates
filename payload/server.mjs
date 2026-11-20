@@ -1,3 +1,4 @@
+import {updateBlockers} from './public/update-policy.mjs';
 import {providers,protocolFor,taskProtocol,videoRoute,preferredModel,enrichModelDetails,normalizeModels,yingmanPayload,yingmanForm} from './providers.mjs';
 import {familyOf} from './public/history.mjs';
 import {OnlineUpdate} from './online-update.mjs';
@@ -80,6 +81,7 @@ async function tick(){if(ticking||!apiKey)return;ticking=true;try{
  }finally{ticking=false;}}
 const timer=setInterval(tick,1000);
 function view(){return {...db,projects:db.projects.map(({deletedAssets,...p})=>({...p,deletedAssetCount:deletedAssets?.length||0})),connected:!!apiKey,base,models,balance,running,concurrency,providers,protocol,preferredModel:preferredModel(models,protocol),downloadProxy:publicProxyConfig(downloadProxy),builtinProxy:builtinProxy.view(),downloadJobs};}
+const blockers=()=>updateBlockers({running,active:active.size,downloads:downloadLocks.size,previews:previewStreams.size,testing:builtinProxy.testRun.running,projects:db.projects});
 const onlineUpdate=new OnlineUpdate({root,config:()=>{try{return resolvedProxy(downloadProxy);}catch{return {mode:'direct'};}},runnerEnv:()=>({...process.env,HUIMIAO_API_KEY:apiKey,HUIMIAO_BASE_URL:base,STUDIO_DATA:dir}),restart:async()=>{await save();await builtinProxy.stop();clearInterval(timer);setTimeout(()=>{server.closeAllConnections();server.close();process.exit(42);},700);}});
 const json=(res,value,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
 async function body(req,limit=1024*1024){let parts=[],n=0;for await(const b of req){n+=b.length;if(n>limit)throw Error('文件或请求超过大小限制');parts.push(b);}return Buffer.concat(parts);}
@@ -111,10 +113,11 @@ export const server=http.createServer(async(req,res)=>{try{
  const host=req.headers.host;if(!host||!['127.0.0.1','localhost','[::1]'].includes(host.replace(/:\d+$/,''))){res.writeHead(403);return res.end();}
  if(req.headers.origin&&req.headers.origin!==`http://${host}`){res.writeHead(403);return res.end('Origin rejected');}
  res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
- if(req.method==='GET'&&url.pathname==='/api/updates'){let value=onlineUpdate.state;if(value.status==='idle'){try{value=JSON.parse(await readFile(path.join(root,'.updates','online-status.json'),'utf8'));}catch{}}return json(res,{...value,current:await onlineUpdate.current()});}
+ if(req.method==='GET'&&url.pathname==='/api/updates'){let value=onlineUpdate.state;if(value.status==='idle'){try{value=JSON.parse(await readFile(path.join(root,'.updates','online-status.json'),'utf8'));}catch{}}return json(res,{...value,current:await onlineUpdate.current(),blockers:blockers()});}
  if(req.method==='POST'&&url.pathname==='/api/updates/check')return json(res,await onlineUpdate.check());
  if(req.method==='POST'&&url.pathname==='/api/updates/install'){
-  if(running||active.size||downloadLocks.size||previewStreams.size||builtinProxy.testRun.running||db.projects.some(p=>p.tasks.some(t=>['pending','uploading','submitting','queued','in_progress'].includes(t.status))))throw Error('请等待生成与下载完成，关闭视频预览并停止节点检测后更新');
+  if(blockers().length)throw Error(blockers().join('；'));
+  await save();
   return json(res,await onlineUpdate.start());
  }
  if(!['GET','HEAD'].includes(req.method)&&['downloading','installing'].includes(onlineUpdate.state.status))throw Error('正在更新软件，请稍候再操作');
@@ -235,7 +238,7 @@ export const server=http.createServer(async(req,res)=>{try{
   p.tasks=p.tasks.map(t=>{const source=t.revision||t;return {id:randomUUID(),label:t.label,prompt:source.prompt,assets:source.assets,model:source.model,duration:source.duration,ratio:source.ratio,resolution:source.resolution,status:'draft'};});db.projects.push(p);await save();return json(res,p);
  }
  const am=url.pathname.match(/^\/assets\/([a-zA-Z0-9.-]+)$/);if(am){const a=db.projects.flatMap(p=>p.assets).find(a=>a.file===am[1]);if(!a)throw Error('素材不存在');res.writeHead(200,{'Content-Type':a.type});return res.end(await readFile(path.join(dir,'assets',a.file)));}
- const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/task-ui.js':'task-ui.js','/references.js':'references.js','/download-ui.js':'download-ui.js','/builtin-ui.js':'builtin-ui.js','/media-ui.js':'media-ui.js','/model-catalog.mjs':'model-catalog.mjs','/history.mjs':'history.mjs','/update-ui.js':'update-ui.js'};if(files[url.pathname]){const file=files[url.pathname];res.writeHead(200,{'Content-Type':file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.css')?'text/css':'text/javascript; charset=utf-8','Cache-Control':'no-store'});return res.end(await readFile(path.join(root,'public',file)));}
+ const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/task-ui.js':'task-ui.js','/references.js':'references.js','/download-ui.js':'download-ui.js','/builtin-ui.js':'builtin-ui.js','/media-ui.js':'media-ui.js','/update-policy.mjs':'update-policy.mjs','/model-catalog.mjs':'model-catalog.mjs','/history.mjs':'history.mjs','/update-ui.js':'update-ui.js'};if(files[url.pathname]){const file=files[url.pathname];res.writeHead(200,{'Content-Type':file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.css')?'text/css':'text/javascript; charset=utf-8','Cache-Control':'no-store'});return res.end(await readFile(path.join(root,'public',file)));}
  json(res,{error:'找不到页面'},404);
  }catch(e){if(res.headersSent||res.destroyed)return res.destroy();json(res,{error:safeError(e)},400);}});
 server.listen(Number(process.env.PORT||4318),'127.0.0.1',()=>console.log(`镜序 · Huimiao 本地工作台 http://127.0.0.1:${server.address().port}`));

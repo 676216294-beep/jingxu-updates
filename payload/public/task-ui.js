@@ -23,6 +23,7 @@ export function openTaskEditor(t,{project,modelOptions,request,url,onSaved,toast
   draft.assets=project.assets.map(a=>({a,pos:plain.indexOf(a.name.replace(/\.[^.]+$/,'').normalize('NFKC'))})).filter(x=>x.pos>=0).sort((a,b)=>a.pos-b.pos).map(x=>x.a.id);
   dialog.querySelectorAll('[data-asset-choice]').forEach(input=>input.checked=draft.assets.includes(input.dataset.assetChoice));updatePreview();
  };
+ dialog.saveForUpdate=async()=>{if(!form.reportValidity())throw Error('请先补全分镜编辑内容再更新');const fields={prompt:form.elements.prompt.value,model:form.elements.model.value,ratio:form.elements.ratio.value,resolution:form.elements.resolution.value,duration:Number(form.elements.duration.value),assets:draft.assets,autoDuration:form.elements.autoDuration.checked};await request(url,'PATCH',fields);};
  form.onsubmit=async e=>{e.preventDefault();const button=form.querySelector('[type=submit]');if(button.disabled)return;button.disabled=true;try{
   const fields={prompt:form.elements.prompt.value,model:form.elements.model.value,ratio:form.elements.ratio.value,resolution:form.elements.resolution.value,duration:Number(form.elements.duration.value),assets:draft.assets,autoDuration:form.elements.autoDuration.checked};
   await request(url,'PATCH',fields);close();await onSaved();toast(t.status==='completed'?'修改已保存，点击“重新生成”可创建新视频':'分镜修改已保存');

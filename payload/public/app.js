@@ -1,3 +1,4 @@
+import {saveUpdateCheckpoint} from './update-policy.mjs';
 import {modelLabel} from './model-catalog.mjs';
 import {setupUpdates} from './update-ui.js';
 import {familyOf,latestCompleted,groupedTasks,openHistory} from './history.mjs';
@@ -111,6 +112,14 @@ function downloadVersion(t){return guard(async()=>{if(!await ensureDownloadFolde
 async function confirmRegenerate(t){await saveChain;await refresh();t=p().tasks.find(x=>x.id===t.id)||t;const shown=workingCopy(t);if(t.status==='uncertain'&&t.request){regeneration={url:taskUrl(t)+'/recover',body:{confirmed:true},recover:true};$('confirmDialog').querySelector('h2').textContent='确认重试原请求';$('confirmSubmit').textContent='确认重试';$('confirmContent').textContent=t.label+' 上次请求的结果尚未确认，将使用原请求标识重试并获取结果，避免重复新建任务。原请求确认失败后可以再编辑并重新生成。';$('confirmDialog').showModal();return;}regeneration={url:taskUrl(t)+'/regenerate',body:{confirmed:true,confirmationId:crypto.randomUUID(),revisionVersion:t.revisionVersion||0}};
  $('confirmDialog').querySelector('h2').textContent='确认重新生成';$('confirmSubmit').textContent='确认重新生成';
  $('confirmContent').textContent=t.label+' 将新建一个视频任务，'+(t.revision?'使用已保存的修改':'提示词保持不变')+'，时长 '+shown.duration+' 秒。'+(price(shown)!==null?'参考费用 '+price(shown)+' 积分。':'费用以平台结算为准。')+'原请求和生成记录会保留；请确认没有重复提交。';$('confirmDialog').showModal();}
-setupUpdates({request,toast,beforeInstall:()=>saveChain});
+async function savePageForUpdate(){
+ if(!state)throw Error('页面尚未加载，请稍后更新');
+ await saveUpdateCheckpoint({snapshot:()=>{
+  for(const id of ['projectName','raw','prefix','suffix'])clearTimeout($(id).saveTimer);
+  return {url:endpoint(),fields:{name:$('projectName').value,raw:$('raw').value,prefix:$('prefix').value,suffix:$('suffix').value,defaults:{model:$('model').value,ratio:$('ratio').value,resolution:$('resolution').value,duration:Number($('duration').value)}},folder:$('downloadFolder').value.trim()};
+ },flush:()=>saveChain,save:async value=>{await request(value.url,'PATCH',value.fields);if(value.folder&&value.folder!==p().downloadFolder)await request(value.url+'/download-folder','POST',{folder:value.folder});},editors:[...document.querySelectorAll('.task-editor')].map(d=>()=>d.saveForUpdate()),remember:()=>sessionStorage.setItem('jx-update-page',JSON.stringify({current:p().id,filter,search,activeTask,scroll:window.scrollY,split:$('splitMode').value,concurrency:$('concurrency').value}))});
+}
+setupUpdates({request,toast,beforeInstall:savePageForUpdate});
 installReferenceTooltip(id=>p()?.assets.find(a=>a.id===id));
-await guard(()=>refresh(true));setInterval(()=>{if(!document.hidden&&state)guard(()=>refresh());},5000);
+let restored;try{restored=JSON.parse(sessionStorage.getItem('jx-update-page'));if(restored){current=restored.current;filter=restored.filter;search=restored.search;activeTask=restored.activeTask;}}catch{}
+await guard(()=>refresh(true));if(restored){$('search').value=search;$('splitMode').value=restored.split;$('concurrency').value=restored.concurrency;window.scrollTo(0,restored.scroll);sessionStorage.removeItem('jx-update-page');}setInterval(()=>{if(!document.hidden&&state)guard(()=>refresh());},5000);
