@@ -36,10 +36,10 @@ function render(full=false){
  renderDownloadProxy(state);renderBuiltinProxy(state);const providerInfo=state.providers?.find(x=>x.base===state.base);$('apiDocsLink').href=providerInfo?.docs||'https://huimiaovip.com/docs/api';$('apiDocsLink').textContent=(providerInfo?.name||'官方')+'接口文档 ↗';
  const pr=p();if(document.activeElement!==$('downloadFolder'))$('downloadFolder').value=pr.downloadFolder||'';$('projects').innerHTML=state.projects.map(x=>`<button data-project="${esc(x.id)}" class="${x.id===pr.id?'selected':''}">▤ &nbsp;${esc(x.name)}</button>`).join('');
  $('connection').textContent=state.connected?'● 已连接 · 余额 '+(state.balance?.available??'—')+' 积分':'○ 尚未连接 API';
- const counts=[pr.tasks.length,pr.tasks.filter(t=>['uploading','submitting','queued','in_progress'].includes(t.status)).length,pr.tasks.filter(t=>t.status==='completed').length,pr.tasks.filter(t=>['failed','error','uncertain'].includes(t.status)).length];
+ const taskGroups=groupedTasks(pr.tasks);const counts=[taskGroups.length,taskGroups.filter(t=>['uploading','submitting','queued','in_progress'].includes(t.status)).length,taskGroups.filter(t=>t.status==='completed').length,taskGroups.filter(t=>['failed','error','uncertain'].includes(t.status)).length];
  $('stats').innerHTML=['分镜总数','正在生成','生成完成','需要处理'].map((name,i)=>`<div class="stat"><span class="icon">${['▤','◴','✓','!'][i]}</span><div><small>${name}</small><b>${counts[i]}</b></div></div>`).join('');
  if(full){$('projectName').value=pr.name;$('raw').value=pr.raw||'';$('prefix').value=pr.prefix||'';$('suffix').value=pr.suffix||'';syncParameters();}
- $('assetCount').textContent=pr.assets.length+' 张';$('restoreAsset').hidden=!pr.deletedAssetCount;$('taskCount').textContent=pr.tasks.length+' 条';
+ $('assetCount').textContent=pr.assets.length+' 张';$('restoreAsset').hidden=!pr.deletedAssetCount;$('taskCount').textContent=taskGroups.length+' 条';
  const selected=pr.tasks.find(t=>t.id===activeTask);
  $('assets').innerHTML=pr.assets.length?pr.assets.map(a=>`<div class="asset ${selected&&workingCopy(selected).assets.includes(a.id)?'selected':''}"><button class="asset-select" data-asset="${esc(a.id)}" title="${esc(a.name)}"><img src="/assets/${esc(a.file)}" alt="${esc(a.name)}"><small>${esc(a.name)}</small></button><button class="asset-delete" data-delete-asset="${esc(a.id)}" aria-label="删除图片 ${esc(a.name)}" title="删除图片">×</button></div>`).join(''):'<div class="empty"><b>＋ 添加你的角色、场景和物品</b>支持 PNG / JPG / WebP，图片保存在本机；生成时再上传。</div>';
  const filters=[['all','全部'],['draft','未提交'],['working','处理中'],['completed','已完成'],['failed','需处理']];
@@ -47,7 +47,7 @@ function render(full=false){
  if(full||lastTaskSignature!==JSON.stringify(pr.tasks)||!$('tasks').contains(document.activeElement))renderTasks();
  const drafts=pr.tasks.filter(t=>['draft','pending'].includes(t.status));const prices=drafts.map(t=>price(t));const total=prices.every(v=>v!==null)?prices.reduce((a,b)=>a+b,0):null;
  $('quote').textContent=total!==null&&drafts.length?`待生成 ${drafts.length} 条 · 参考 ${total.toFixed(2)} 积分（实时价格可能变化）`:drafts.length?'报价不完整或含 Token 计费，以平台结算为准':'项目自动保存到本机';
- $('queueSummary').textContent=state.running?'队列正在提交…':`已保存 · ${pr.tasks.length} 个分镜`;
+ $('queueSummary').textContent=state.running?'队列正在提交…':`已保存 · ${taskGroups.length} 个分镜`;
  $('start').textContent=state.running?'队列运行中':'▶ 批量生成';$('start').disabled=state.running;
 }
 async function initializeDefaults(){
@@ -106,7 +106,7 @@ $('saveDownloadFolder').onclick=()=>guard(async()=>{await request(endpoint()+'/d
 $('readDurations').onclick=()=>guard(async()=>{await saveChain;const result=await request(endpoint()+'/read-durations','POST',{});await refresh();toast(`已重新读取 ${result.count} 条未提交分镜的时间`);});
 const renderDownloadProxy=setupDownloadProxy({request,refresh,toast});
 const renderBuiltinProxy=setupBuiltinProxy({request,refresh,toast});
-function recoverTask(task){const projectId=p().id;return openTaskRecovery(task,{url:task?taskUrl(task)+'/pull-video':endpoint()+'/pull-video',base:state.base,request,onRecovered:async result=>{current=projectId;activeTask=result.taskId;filter='all';search='';$('search').value='';await refresh(true);toast(result.status==='completed'?'视频已关联，可预览或下载':result.status==='failed'?'已确认平台生成失败，可编辑后重新生成':'平台任务状态已同步');}});}
+function recoverTask(task){const projectId=p().id;return openTaskRecovery(task,{url:task?taskUrl(task)+'/pull-video':endpoint()+'/pull-video',noVideoUrl:task?taskUrl(task)+'/confirm-no-video':undefined,base:state.base,request,onRecovered:async result=>{current=projectId;activeTask=result.taskId;filter='all';search='';$('search').value='';await refresh(true);if(result.noVideoConfirmed)return confirmRegenerate(p().tasks.find(t=>t.id===result.taskId));toast(result.status==='completed'?'视频已关联，可预览或下载':result.status==='failed'?'已确认平台生成失败，可编辑后重新生成':'平台任务状态已同步');}});}
 $('pullVideo').onclick=()=>guard(async()=>{await saveChain;recoverTask();});
 let regeneration=null;
 function playVersion(t){return previewVideo(t,{url:taskUrl(t)+'/preview-video?version='+encodeURIComponent(t.remoteId||t.id),mode:state.downloadProxy?.mode,onDownload:()=>downloadVersion(t)});}

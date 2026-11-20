@@ -201,7 +201,7 @@ export const server=http.createServer(async(req,res)=>{try{
   if(req.method==='POST'&&action==='restore-asset'){const restored=restoreAsset(p);await save();return json(res,{restoredId:restored.id});}
   if(req.method==='POST'&&action==='match'){for(const t of p.tasks)if(editable(t))t.assets=matchAssets(t.prompt,p.assets);await save();return json(res,p);}
   if(req.method==='POST'&&action==='start'){
-   if(!apiKey||!models.length)throw Error('请先连接 API');const b=await readJson(req);concurrency=Math.max(1,Math.min(6,Number(b.concurrency)||2));
+   if(!apiKey||!models.length)throw Error('请先连接 API');const b=await readJson(req),requestedConcurrency=Number(b.concurrency);concurrency=Number.isFinite(requestedConcurrency)?Math.max(1,Math.min(50,Math.trunc(requestedConcurrency))):2;
    const tasks=p.tasks.filter(t=>(!b.ids||b.ids.includes(t.id))&&['draft','pending'].includes(t.status));if(!tasks.length)throw Error('没有未提交分镜');
    for(const t of tasks){const errors=validate(t,models.find(m=>m.id===t.model),t.assets.map(id=>p.assets.find(a=>a.id===id)).filter(Boolean),finalPrompt(p,t));if(errors.length)throw Error(`${t.label}：${errors.join('；')}`);}
    for(const t of tasks){t.preparedPrompt=finalPrompt(p,t);t.status='pending';}running=true;await save();void tick();return json(res,view());
@@ -209,6 +209,14 @@ export const server=http.createServer(async(req,res)=>{try{
   if(req.method==='GET'&&action==='export'){const out=structuredClone(p);delete out.downloadFolder;delete out.deletedAssets;for(const a of out.assets){a.bytes=(await readFile(path.join(dir,'assets',a.file))).toString('base64');delete a.objectKey;delete a.uploadBase;}res.setHeader('Content-Disposition','attachment; filename="huimiao-project.json"');return json(res,{format:'huimiao-local-v1',project:out});}
   const tm=action.match(/^tasks\/([^/]+)(?:\/(.*))?$/);
   if(tm){const t=p.tasks.find(t=>t.id===tm[1]);if(!t)throw Error('任务不存在');const op=tm[2]||'';
+   if(req.method==='POST'&&op==='confirm-no-video'){
+    const b=await readJson(req);if(b.confirmed!==true)throw Error('请确认平台未生成该视频');
+    if(active.has(t.id))throw Error('该任务正在处理，请稍候');
+    if(t.status==='failed'&&t.noVideoConfirmedAt)return json(res,{taskId:t.id,status:t.status,noVideoConfirmed:true});
+    if(!['uncertain','error'].includes(t.status))throw Error('此任务当前无需恢复确认');
+    t.status='failed';t.noVideoConfirmedAt=Date.now();t.error='用户确认平台未生成视频，可重新生成';
+    await save();return json(res,{taskId:t.id,status:t.status,noVideoConfirmed:true});
+   }
    if(req.method==='POST'&&op==='pull-video'){const b=await readJson(req);return json(res,await pullVideo(p,b.remoteId||t.remoteId,t));}
    if(req.method==='PATCH'&&!op){
     if(active.has(t.id)||!['draft','completed','error','failed','cancelled'].includes(t.status))throw Error('此任务正在处理或结果尚未确认，当前不可编辑');

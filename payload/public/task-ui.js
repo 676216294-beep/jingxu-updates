@@ -2,7 +2,7 @@ import {familyOf,latestCompleted} from './history.mjs';
 import {highlightedPrompt} from './references.js';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const workingCopy=t=>({...t,...t.revision});
-export function openTaskRecovery(task,{url,request,onRecovered,base}){
+export function openTaskRecovery(task,{url,noVideoUrl,request,onRecovered,base}){
  const dialog=document.createElement('dialog');
  const form=document.createElement('form');
  const head=document.createElement('div');head.className='section-head';
@@ -15,8 +15,12 @@ export function openTaskRecovery(task,{url,request,onRecovered,base}){
  const error=document.createElement('p');error.className='error-msg';error.setAttribute('role','status');
  const actions=document.createElement('div');actions.className='actions';
  const submit=document.createElement('button');submit.type='submit';submit.className='primary';submit.textContent=task?'查询并恢复确认':'查询并拉取';actions.append(submit);
+ const noVideo=task?document.createElement('button'):null;
+ if(noVideo){noVideo.type='button';noVideo.textContent='确认无视频';actions.append(noVideo);hint.textContent+=' 确认平台未生成视频后，可点击“确认无视频”进入重新生成。';}
  form.append(head,hint,site,label,error,actions);dialog.append(form);
- form.onsubmit=async event=>{event.preventDefault();if(submit.disabled)return;submit.disabled=true;error.textContent='正在查询平台任务…';try{const result=await request(url,'POST',{remoteId:input.value.trim()});await onRecovered(result);dialog.close();}catch(e){error.textContent=e.message;}finally{submit.disabled=false;}};
+ const submitAction=async(actionUrl,body,message)=>{if(submit.disabled)return;submit.disabled=true;if(noVideo)noVideo.disabled=true;error.textContent=message;try{const result=await request(actionUrl,'POST',body);await onRecovered(result);dialog.close();}catch(e){error.textContent=e.message;}finally{submit.disabled=false;if(noVideo)noVideo.disabled=false;}};
+ form.onsubmit=event=>{event.preventDefault();return submitAction(url,{remoteId:input.value.trim()},'正在查询平台任务…');};
+ if(noVideo)noVideo.onclick=()=>submitAction(noVideoUrl,{confirmed:true},'正在保存无视频确认…');
  dialog.addEventListener('close',()=>dialog.remove());document.body.append(dialog);dialog.showModal();input.focus();
 }
 export function taskCard(t,pr,{modelOptions,price,activeTask,taskUrl,statuses}){

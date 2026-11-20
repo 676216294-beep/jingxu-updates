@@ -1,5 +1,5 @@
 {
-  "version": "1.6.2",
+  "version": "1.6.3",
   "format": "jingxu-update-v1",
   "requires": [
     {
@@ -962,7 +962,7 @@
   "files": [
     {
       "path": "public/app.js",
-      "sha256": "bf40fd3b63411bba083f3d7334c918d738947e19f4cbf1527093ec652320d6ac"
+      "sha256": "1bac0341b2a5bd65d78d54485098da396d3a539258bdf2b4b3d8f2c585d65848"
     },
     {
       "path": "public/history.mjs",
@@ -970,7 +970,7 @@
     },
     {
       "path": "public/index.html",
-      "sha256": "a4da8481fe01babe9a844455b3c55d9f97dfeaa6657d6bc37234e1763c709fa3"
+      "sha256": "a465e0f4ac843fe7ec98702c72cc3b3763cf77c819baec9b7a4e5502e9df088d"
     },
     {
       "path": "public/model-catalog.mjs",
@@ -982,7 +982,7 @@
     },
     {
       "path": "public/task-ui.js",
-      "sha256": "18797f034933cc56348993426419a090789eb0eddeaf0d54f245a492b916930b"
+      "sha256": "f00cca95878ea427561003bd4314715b8ad6b517da3e8926a769f605efde85ca"
     },
     {
       "path": "public/update-policy.mjs",
@@ -1038,7 +1038,7 @@
     },
     {
       "path": "server.mjs",
-      "sha256": "463866db6cc08df94efdb3102ed1a5afd9b6f64fa7887735c34d1a87c83808bb"
+      "sha256": "921cda58d0a7c803e916042d17396ef5ff6a4257d88d33ae5bb101fdc7bc2eb3"
     },
     {
       "path": "download-proxy.mjs",
@@ -1058,7 +1058,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "fbe5d7ab893aaa1d7b2eadbfb2604ed83e36e22e05178176299557661b82ca61"
+      "sha256": "603db2151e7cf3d55097366cd10e506c9d95dc4218fa400fe3421a2f86352b60"
     },
     {
       "path": "package-release.ps1",
@@ -1114,7 +1114,11 @@
     },
     {
       "path": "tests/task-recovery.test.mjs",
-      "sha256": "d7bdc72eedfa9ac3ad04fa943f561cee3378c5f3b4f0ddcafd515d7e5799a2fc"
+      "sha256": "ba0bb0501bb38acccb7aa45b453139aa58879e8f482ce77913111fe75669800d"
+    },
+    {
+      "path": "tests/concurrency.test.mjs",
+      "sha256": "f2c850663cb044567fc0524f80cc20140557500712740947ce7b8516fbe8b063"
     }
   ],
   "baseVersion": "1.2.0"

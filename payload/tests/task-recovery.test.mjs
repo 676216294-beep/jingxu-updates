@@ -6,20 +6,21 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {familyOf,groupedTasks} from '../public/history.mjs';
 
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const fields={model:'mock',duration:5,ratio:'9:16',resolution:'720p',prompt:'original prompt',assets:[]};
 
-for(const protocol of ['yingman','huimiao'])test(protocol+' 按任务编号恢复和拉取，查询失败保持原记录，全程不提交生成',async()=>{
+for(const protocol of ['yingman','huimiao'])test(protocol+' 按编号查询及无视频确认，保留原记录并按确认重新生成',async()=>{
  const dir=await mkdtemp(path.join(tmpdir(),'jx-task-recovery-'));
  let child,submissions=0;
  const reads=[];
  const upstream=http.createServer(async(req,res)=>{
   const reply=(data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
   assert.equal(req.headers.authorization,'Bearer test-recovery-key');
-  if(req.url==='/v1/models')return reply({data:[{id:'mock',name:'Seedance 2.5 Flash',capability:'video',unitPriceMicrocredits:1}]});
+  if(req.url==='/v1/models')return reply({data:[{id:'mock',name:'Seedance 2.5 Flash',capability:'video',unitPriceMicrocredits:1,supported_ratios:['9:16'],supported_resolutions:['720p'],min_duration:1,max_duration:30}]});
   if(req.url==='/v1/balance')return reply({available:100});
-  if(req.method==='POST'){submissions++;return reply({error:{message:'Unexpected generation request'}},400);}
+  if(req.method==='POST'){submissions++;return reply({id:'generated-after-confirmation',status:'queued'});}
   if(req.url.endsWith('/content')){res.writeHead(200,{'Content-Type':'video/mp4'});return res.end('recovered-video');}
   const prefix=protocol==='yingman'?'/v1/videos/':'/v1/videos/generations/';
   if(!req.url.startsWith(prefix))return reply({error:{message:'Wrong protocol route'}},404);
@@ -32,7 +33,7 @@ for(const protocol of ['yingman','huimiao'])test(protocol+' 按任务编号恢�
  upstream.listen(0,'127.0.0.1');await once(upstream,'listening');
  const base='http://127.0.0.1:'+upstream.address().port;
  const pending=id=>({...fields,id,label:id,status:'uncertain',apiProtocol:protocol,apiBase:base,request:{prompt:'original submitted prompt'},idempotencyKey:'original-'+id});
- const project={id:'p',name:'recovery',assets:[],raw:'',defaults:fields,prefix:'',suffix:'',tasks:[pending('unknown'),{...pending('known'),remoteId:'known-video'},pending('second'),pending('slow-local'),{...pending('wrong-site'),apiBase:'https://other.example'}]};
+ const project={id:'p',name:'recovery',assets:[],raw:'',defaults:fields,prefix:'',suffix:'',tasks:[pending('unknown'),{...pending('known'),remoteId:'known-video'},pending('second'),pending('slow-local'),{...pending('wrong-site'),apiBase:'https://other.example'},{...pending('no-video'),remoteId:'unconfirmed-remote'}]};
  await writeFile(path.join(dir,'projects.json'),JSON.stringify({projects:[project]}));
  try{
   child=spawn(process.execPath,['server.mjs'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,PORT:'0',STUDIO_TEST:'1',STUDIO_DATA:dir},stdio:['ignore','pipe','pipe']});
@@ -70,6 +71,22 @@ for(const protocol of ['yingman','huimiao'])test(protocol+' 按任务编号恢�
   const failed=await call(recover('second'),'POST',{remoteId:'failed-video'});assert.equal(failed.data.status,'failed');
   const saved=JSON.parse(await readFile(path.join(dir,'projects.json'),'utf8')).projects[0];
   assert.equal(saved.tasks.filter(t=>t.remoteId==='standalone').length,1);assert.equal(saved.tasks.find(t=>t.id==='second').error,'生成失败原因');assert.equal(saved.tasks.find(t=>t.id===running.data.taskId).remoteId,'running');assert.equal(submissions,0);
+  const noVideoUrl=endpoint+'/tasks/no-video/confirm-no-video';
+  assert.equal((await call(noVideoUrl,'POST',{})).status,400);
+  assert.equal((await call(endpoint+'/tasks/unknown/confirm-no-video','POST',{confirmed:true})).status,400);
+  const [confirm,repeatConfirm]=await Promise.all([call(noVideoUrl,'POST',{confirmed:true}),call(noVideoUrl,'POST',{confirmed:true})]);
+  assert.equal(confirm.status,200);assert.equal(repeatConfirm.status,200);
+  const afterConfirm=(await call('/api/state')).data.projects[0];
+  const original=afterConfirm.tasks.find(t=>t.id==='no-video');
+  assert.equal(afterConfirm.tasks.length,saved.tasks.length);assert.equal(original.status,'failed');assert.ok(original.noVideoConfirmedAt);assert.equal(original.remoteId,'unconfirmed-remote');assert.equal(original.request.prompt,'original submitted prompt');assert.equal(submissions,0);
+  const confirmation={confirmed:true,confirmationId:'no-video-regeneration',revisionVersion:0};
+  const [regenerate,repeatRegenerate]=await Promise.all([call(endpoint+'/tasks/no-video/regenerate','POST',confirmation),call(endpoint+'/tasks/no-video/regenerate','POST',confirmation)]);
+  assert.equal(regenerate.status,200,JSON.stringify(regenerate.data));assert.equal(repeatRegenerate.data.taskId,regenerate.data.taskId);
+  for(let i=0;i<100&&!submissions;i++)await wait(30);
+  assert.equal(submissions,1);
+  const regenerated=(await call('/api/state')).data.projects[0];
+  assert.equal(groupedTasks(regenerated.tasks).length,groupedTasks(afterConfirm.tasks).length);assert.equal(familyOf(regenerated.tasks,original).length,2);
+  const newTask=regenerated.tasks.find(t=>t.id===regenerate.data.taskId);assert.equal(newTask.parentTaskId,'no-video');assert.equal(newTask.prompt,'original prompt');assert.notEqual(newTask.idempotencyKey,original.idempotencyKey);
  }finally{
   if(child){child.kill();await once(child,'exit');}
   upstream.closeAllConnections();upstream.close();await rm(dir,{recursive:true,force:true});
