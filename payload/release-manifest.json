@@ -1,5 +1,5 @@
 {
-  "version": "1.6.1",
+  "version": "1.6.2",
   "format": "jingxu-update-v1",
   "requires": [
     {
@@ -962,15 +962,15 @@
   "files": [
     {
       "path": "public/app.js",
-      "sha256": "c4d94a73d9889ef842837a002c1d128ca5630ac9c1ff1b6ba50a13e9358261ce"
+      "sha256": "bf40fd3b63411bba083f3d7334c918d738947e19f4cbf1527093ec652320d6ac"
     },
     {
       "path": "public/history.mjs",
-      "sha256": "06ac150d5ae0f0691661121d75506ca110917c7771fe45d142203c705bd7fc02"
+      "sha256": "9dc64b0fb81a6c9c59b94938c5217c6e773bb5bd9f89979b38567c9cd731b403"
     },
     {
       "path": "public/index.html",
-      "sha256": "4142365f2f25ccd2043b667a99ca9c4daf87e344f03524784dbb2c8c47483c44"
+      "sha256": "a4da8481fe01babe9a844455b3c55d9f97dfeaa6657d6bc37234e1763c709fa3"
     },
     {
       "path": "public/model-catalog.mjs",
@@ -982,7 +982,7 @@
     },
     {
       "path": "public/task-ui.js",
-      "sha256": "7ab65bbb029a8e700a604a0cb1c21ab0d4929b3ce7d336858ecf28d9901ef674"
+      "sha256": "18797f034933cc56348993426419a090789eb0eddeaf0d54f245a492b916930b"
     },
     {
       "path": "public/update-policy.mjs",
@@ -1014,7 +1014,7 @@
     },
     {
       "path": "tests/retry-generation.test.mjs",
-      "sha256": "1a0d06c180c6ba8d25457e97d938f3ff30bf2ddede01be7b73e716d33604783c"
+      "sha256": "696d13ee9424f64ed9f762ad5b21f50b4cc40436a8eb96f1a68b92b55c94f8ee"
     },
     {
       "path": "tests/studio.test.mjs",
@@ -1038,7 +1038,7 @@
     },
     {
       "path": "server.mjs",
-      "sha256": "82e1ee38d387ea7b040ed5497f25116bd42da66968d8c9ffccb4920e710e7d87"
+      "sha256": "463866db6cc08df94efdb3102ed1a5afd9b6f64fa7887735c34d1a87c83808bb"
     },
     {
       "path": "download-proxy.mjs",
@@ -1058,7 +1058,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "5614a4b2f39b840ef41e8eceefbb30a5c4f7d8c03275eb66791b234ab8b71b95"
+      "sha256": "fbe5d7ab893aaa1d7b2eadbfb2604ed83e36e22e05178176299557661b82ca61"
     },
     {
       "path": "package-release.ps1",
@@ -1111,6 +1111,10 @@
     {
       "path": "tests/media-assets.test.mjs",
       "sha256": "67f336cab67d8cb10a20f9f42b883e37efab46532eb35ffdb6769ec67a5c3266"
+    },
+    {
+      "path": "tests/task-recovery.test.mjs",
+      "sha256": "d7bdc72eedfa9ac3ad04fa943f561cee3378c5f3b4f0ddcafd515d7e5799a2fc"
     }
   ],
   "baseVersion": "1.2.0"

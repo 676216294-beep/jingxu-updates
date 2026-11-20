@@ -9,8 +9,8 @@ import http from 'node:http';
 import {taskCard} from '../public/task-ui.js';
 const root=path.resolve(import.meta.dirname,'..'),wait=ms=>new Promise(r=>setTimeout(r,ms));
 const fields={model:'mock',duration:5,ratio:'9:16',resolution:'720p',prompt:'test prompt',assets:[]};
-test('失败和结果未知的任务均显示重新生成按钮，明确失败支持编辑',()=>{
- for(const status of ['error','failed','cancelled','uncertain']){const t={...fields,id:'t',label:'shot',status,request:{prompt:'original'}};const html=taskCard(t,{tasks:[t],assets:[]},{modelOptions:()=>[],price:()=>null,statuses:{},taskUrl:()=>''});assert.match(html,/data-op="regenerate"/);if(status!=='uncertain')assert.match(html,/data-op="edit"/);else assert.ok(!html.includes('data-op="edit"'));}
+test('结果未知显示恢复确认，明确失败支持编辑和重新生成',()=>{
+ for(const status of ['error','failed','cancelled','uncertain']){const t={...fields,id:'t',label:'shot',status,request:{prompt:'original'}};const html=taskCard(t,{tasks:[t],assets:[]},{modelOptions:()=>[],price:()=>null,statuses:{},taskUrl:()=>''});if(status==='uncertain'){assert.match(html,/data-op="recover"/);assert.ok(!html.includes('data-op="regenerate"'));assert.ok(!html.includes('data-op="edit"'));}else{assert.match(html,/data-op="regenerate"/);assert.match(html,/data-op="edit"/);}}
 });
 test('失败重生使用新任务且保留原请求，未知结果重试复用原标识并阻止重复提交',async()=>{
  const dir=await mkdtemp(path.join(tmpdir(),'jx-retry-'));let child;const seen=[];

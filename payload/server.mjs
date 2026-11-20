@@ -72,6 +72,34 @@ async function poll(t){active.add(t.id);try{
  t.remote=await api(videoRoute(taskProtocol(t,base),t.remoteId));t.status=t.remote.status;t.error=t.status==='failed'?(t.remote.error?.message||t.remote.failure_reason||'平台生成失败'):'';
  t.nextPoll=Date.now()+Math.min(20000,(t.pollCount=(t.pollCount||0)+1)<12?5000:15000);
  }catch(e){t.error=safeError(e);t.nextPoll=Date.now()+30000;}finally{active.delete(t.id);await save();}}
+async function pullVideo(p,remoteId,target){
+ if(!apiKey)throw Error('请先连接 API');
+ if(typeof remoteId!=='string'||!/^[-a-zA-Z0-9_]{1,200}$/.test(remoteId.trim()))throw Error('请填写完整的平台任务编号');
+ remoteId=remoteId.trim();
+ if(target){
+  if(target.apiBase&&target.apiBase!==base)throw Error('请切换到任务原 API 站点恢复');
+  if(!['uncertain','error'].includes(target.status))throw Error('此任务当前无需恢复确认');
+  if(target.remoteId&&target.remoteId!==remoteId)throw Error('原任务已有平台编号，请使用原编号恢复');
+ }
+ const existing=p.tasks.find(t=>t.remoteId===remoteId&&t.apiBase===base);
+ if(target&&existing&&existing!==target)throw Error('该平台任务已关联到本合集的其他记录');
+ const task=target||existing,lockId=task?.id||randomUUID();
+ if(active.has(lockId))throw Error('该任务正在查询，请稍候');
+ active.add(lockId);
+ try{
+  const proto=task?taskProtocol(task,base):protocol;
+  const remote=await api(videoRoute(proto,remoteId));
+  if(!remote.id||!['queued','in_progress','completed','failed','cancelled'].includes(remote.status))throw Error('平台返回的任务信息无效，请核对任务编号');
+  const canonicalId=String(remote.id);
+  const duplicate=p.tasks.find(t=>t!==task&&t.apiBase===base&&(t.remoteId===remoteId||t.remoteId===canonicalId));
+  if(target&&duplicate)throw Error('该平台任务已关联到本合集的其他记录');
+  if(duplicate&&active.has(duplicate.id))throw Error('该任务正在查询，请稍候');
+  const result=task||duplicate||{id:lockId,createdAt:Date.now(),label:'拉取任务 '+remoteId,prompt:remote.prompt||'通过平台任务编号拉取的视频',assets:[],model:remote.model||p.defaults.model,duration:Number(remote.seconds||remote.duration)||p.defaults.duration,ratio:remote.ratio||p.defaults.ratio,resolution:remote.resolution||p.defaults.resolution};
+  Object.assign(result,{remoteId:canonicalId,remote,apiBase:base,apiProtocol:proto,status:remote.status,error:remote.status==='failed'?(remote.error?.message||remote.failure_reason||'平台生成失败'):'',nextPoll:Date.now()+5000});
+  if(!task&&!duplicate)p.tasks.push(result);
+  await save();return {taskId:result.id,status:result.status,reused:!!(task||duplicate)};
+ }finally{active.delete(lockId);}
+}
 async function tick(){if(ticking||!apiKey)return;ticking=true;try{
  const all=db.projects.flatMap(p=>p.tasks.map(t=>({p,t})));
  const checking=all.filter(({t})=>t.remoteId&&['queued','in_progress'].includes(t.status)&&!active.has(t.id)&&(!t.nextPoll||t.nextPoll<=Date.now())).slice(0,2);
@@ -153,6 +181,7 @@ export const server=http.createServer(async(req,res)=>{try{
  if(req.method==='POST'&&url.pathname==='/api/pause'){running=false;await save();return json(res,view());}
  const m=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(.*))?$/);
  if(m){const p=project(m[1]),action=m[2]||'';
+  if(req.method==='POST'&&action==='pull-video'){const b=await readJson(req);return json(res,await pullVideo(p,b.remoteId));}
   if(req.method==='PATCH'&&!action){const b=await readJson(req);for(const k of ['name','raw','defaults','prefix','suffix'])if(b[k]!==undefined)p[k]=b[k];await save();return json(res,p);}
   if(req.method==='POST'&&action==='download-folder'){
    const b=await readJson(req);let folder=b.browse?await pickFolder():await checkFolder(b.folder);
@@ -180,6 +209,7 @@ export const server=http.createServer(async(req,res)=>{try{
   if(req.method==='GET'&&action==='export'){const out=structuredClone(p);delete out.downloadFolder;delete out.deletedAssets;for(const a of out.assets){a.bytes=(await readFile(path.join(dir,'assets',a.file))).toString('base64');delete a.objectKey;delete a.uploadBase;}res.setHeader('Content-Disposition','attachment; filename="huimiao-project.json"');return json(res,{format:'huimiao-local-v1',project:out});}
   const tm=action.match(/^tasks\/([^/]+)(?:\/(.*))?$/);
   if(tm){const t=p.tasks.find(t=>t.id===tm[1]);if(!t)throw Error('任务不存在');const op=tm[2]||'';
+   if(req.method==='POST'&&op==='pull-video'){const b=await readJson(req);return json(res,await pullVideo(p,b.remoteId||t.remoteId,t));}
    if(req.method==='PATCH'&&!op){
     if(active.has(t.id)||!['draft','completed','error','failed','cancelled'].includes(t.status))throw Error('此任务正在处理或结果尚未确认，当前不可编辑');
     const b=await readJson(req),target={...(t.revision||t)};
@@ -212,7 +242,7 @@ export const server=http.createServer(async(req,res)=>{try{
    }
    if(req.method==='DELETE'&&!op){if(!editable(t)||t.request)throw Error('此任务已提交或正在处理中，不能删除');p.tasks=p.tasks.filter(x=>x!==t);await save();return json(res,p);}
    if(req.method==='POST'&&op==='duplicate'){const source=t.revision||t;const copy={...p.defaults,prompt:source.prompt,label:t.label+' 副本',assets:[...source.assets],model:source.model,duration:source.duration,ratio:source.ratio,resolution:source.resolution,id:randomUUID(),status:'draft'};p.tasks.push(copy);await save();return json(res,p);}
-   if(req.method==='POST'&&op==='recover'){if(!['uncertain','error'].includes(t.status)||!t.request||active.has(t.id))throw Error('此任务无需恢复或正在重试');if(!apiKey)throw Error('请先连接 API');if(t.apiBase&&t.apiBase!==base)throw Error('请切换到任务原 API 站点恢复');if(taskProtocol(t,base)==='yingman'&&t.status==='uncertain'){if(t.remoteId){void poll(t);return json(res,{taskId:t.id,recovered:true});}throw Error('萤漫未明确保证视频重复提交的幂等性，请先到萤漫任务页确认结果，确认未生成后再复制分镜提交');}if(!t.idempotencyKey)throw Error('缺少原请求标识，无法安全恢复，请先到平台确认结果');void submit(p,t);return json(res,{taskId:t.id,recovered:true});}
+   if(req.method==='POST'&&op==='recover'){if(!['uncertain','error'].includes(t.status)||!t.request||active.has(t.id))throw Error('此任务无需恢复或正在重试');if(!apiKey)throw Error('请先连接 API');if(t.apiBase&&t.apiBase!==base)throw Error('请切换到任务原 API 站点恢复');if(t.remoteId)return json(res,await pullVideo(p,t.remoteId,t));if(taskProtocol(t,base)==='yingman'&&t.status==='uncertain')throw Error('萤漫未明确保证重复提交的幂等性，请点击“恢复确认”并填写平台任务编号查询结果');if(!t.idempotencyKey)throw Error('缺少原请求标识，无法安全恢复，请先到平台确认结果');void submit(p,t);return json(res,{taskId:t.id,recovered:true});}
    if(req.method==='POST'&&op==='cancel'){if(t.status==='pending'){t.status='draft';}else if(t.status==='queued'){if(taskProtocol(t,base)==='yingman')throw Error('萤漫文档未提供取消接口，请到萤漫任务页操作');t.remote=await api('/v1/videos/generations/'+encodeURIComponent(t.remoteId),{method:'DELETE'});t.status=t.remote.status||'cancelled';}else throw Error('只可撤回本地排队或取消平台排队任务');await save();return json(res,t);}
    if(req.method==='POST'&&op==='download'){
     // Check the user-selected folder before retrieving any remote video.
